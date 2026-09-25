@@ -1,0 +1,12 @@
+[package]
+name = "gyotaku-core"
+description = "Screenshot index for gyotaku: OCR'd lines, their boxes, and full text search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+directories.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
