@@ -99,17 +99,7 @@ impl Index {
     pub fn insert(&mut self, shot: &Shot, lines: &[Line]) -> Result<i64> {
         let tx = self.db.transaction()?;
         let path = path_str(&shot.path);
-
-        // The fts table has no foreign key, so it has to be cleaned up by hand.
-        if let Some(old) = tx
-            .query_row("SELECT id FROM shots WHERE path = ?1", [&path], |r| {
-                r.get::<_, i64>(0)
-            })
-            .optional()?
-        {
-            tx.execute("DELETE FROM shots_fts WHERE rowid = ?1", [old])?;
-            tx.execute("DELETE FROM shots WHERE id = ?1", [old])?;
-        }
+        delete(&tx, &path)?;
 
         tx.execute(
             "INSERT INTO shots (path, mtime, width, height) VALUES (?1, ?2, ?3, ?4)",
@@ -144,10 +134,46 @@ impl Index {
         Ok(id)
     }
 
+    /// Returns whether there was anything to remove.
+    pub fn remove(&mut self, path: &Path) -> Result<bool> {
+        let tx = self.db.transaction()?;
+        let removed = delete(&tx, &path_str(path))?;
+        tx.commit()?;
+        Ok(removed)
+    }
+
+    /// Drops every shot whose file is gone, returns how many.
+    pub fn prune(&mut self) -> Result<usize> {
+        let gone: Vec<PathBuf> = self.paths()?.into_iter().filter(|p| !p.exists()).collect();
+        for p in &gone {
+            self.remove(p)?;
+        }
+        Ok(gone.len())
+    }
+
+    pub fn paths(&self) -> Result<Vec<PathBuf>> {
+        let mut stmt = self.db.prepare("SELECT path FROM shots")?;
+        let paths = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .map(|p| p.map(PathBuf::from))
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(paths)
+    }
+
     pub fn len(&self) -> Result<usize> {
         let n: i64 = self
             .db
             .query_row("SELECT count(*) FROM shots", [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
+    /// Everything in `shots` has been looked at, but only these can be shown.
+    pub fn visible_len(&self) -> Result<usize> {
+        let n: i64 = self
+            .db
+            .query_row("SELECT count(*) FROM shots WHERE width > 0", [], |r| {
+                r.get(0)
+            })?;
         Ok(n as usize)
     }
 
@@ -165,7 +191,7 @@ impl Index {
 
         let mut sql = String::from(
             "SELECT s.id, s.path, s.mtime, s.width, s.height
-             FROM shots_fts f JOIN shots s ON s.id = f.rowid WHERE 1",
+             FROM shots_fts f JOIN shots s ON s.id = f.rowid WHERE s.width > 0",
         );
         let mut args: Vec<Value> = Vec::new();
 
@@ -236,6 +262,21 @@ impl Index {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(lines)
     }
+}
+
+fn delete(tx: &rusqlite::Transaction, path: &str) -> Result<bool> {
+    let Some(id) = tx
+        .query_row("SELECT id FROM shots WHERE path = ?1", [path], |r| {
+            r.get::<_, i64>(0)
+        })
+        .optional()?
+    else {
+        return Ok(false);
+    };
+    // The fts table has no foreign key, so it has to be cleaned up by hand.
+    tx.execute("DELETE FROM shots_fts WHERE rowid = ?1", [id])?;
+    tx.execute("DELETE FROM shots WHERE id = ?1", [id])?;
+    Ok(true)
 }
 
 // Each term becomes a quoted fts5 string, which turns off the query syntax
@@ -410,6 +451,60 @@ mod tests {
         assert_eq!(idx.len().unwrap(), 1);
         assert_eq!(idx.search("", 10).unwrap().len(), 1);
         assert!(idx.search("anything", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn removed_shots_stop_matching() {
+        let mut idx = sample();
+        assert!(idx.remove(Path::new("/shots/youtube.png")).unwrap());
+        assert!(!idx.remove(Path::new("/shots/youtube.png")).unwrap());
+        assert!(idx.search("donutsmp", 10).unwrap().is_empty());
+        assert_eq!(idx.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn prune_drops_files_that_no_longer_exist() {
+        let dir = std::env::temp_dir().join(format!("gyotaku-prune-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = dir.join("kept.png");
+        std::fs::write(&kept, b"").unwrap();
+
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.insert(
+            &Shot {
+                path: kept.clone(),
+                mtime: 1,
+                width: 10,
+                height: 10,
+            },
+            &[],
+        )
+        .unwrap();
+        idx.insert(&shot("/definitely/not/here.png", 1), &[])
+            .unwrap();
+        assert_eq!(idx.prune().unwrap(), 1);
+        assert_eq!(idx.paths().unwrap(), [kept]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn zero_sized_shots_are_indexed_but_hidden() {
+        let mut idx = sample();
+        let broken = Shot {
+            path: "/shots/broken.png".into(),
+            mtime: 999,
+            width: 0,
+            height: 0,
+        };
+        idx.insert(&broken, &[line("donutsmp", 0.1)]).unwrap();
+        assert!(idx.is_current(Path::new("/shots/broken.png"), 999).unwrap());
+        assert_eq!(idx.len().unwrap(), 3);
+        assert_eq!(idx.visible_len().unwrap(), 2);
+        assert_eq!(
+            paths(&idx.search("donutsmp", 10).unwrap()),
+            ["/shots/youtube.png"]
+        );
+        assert_eq!(idx.search("", 10).unwrap().len(), 2);
     }
 
     #[test]
