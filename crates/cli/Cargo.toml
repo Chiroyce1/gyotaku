@@ -8,5 +8,6 @@ repository.workspace = true
 
 [dependencies]
 gyotaku-core.workspace = true
+gyotaku-ocr.workspace = true
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cli", "crates/app"]
+members = ["crates/core", "crates/ocr", "crates/cli", "crates/app"]
 
 [workspace.package]
 version = "0.0.1"
@@ -10,8 +10,17 @@ repository = "https://github.com/xevrion/gyotaku"
 
 [workspace.dependencies]
 gyotaku-core = { path = "crates/core" }
+gyotaku-ocr = { path = "crates/ocr" }
 anyhow = "1.0"
 directories = "6.0"
+
+# Image decoding and the per pixel loops around OCR crawl at opt-level 0, and
+# testing on a few thousand real screenshots is the normal dev loop here.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.release]
 lto = "thin"
