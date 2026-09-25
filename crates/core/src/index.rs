@@ -134,6 +134,19 @@ impl Index {
         Ok(id)
     }
 
+    /// Moves a shot to a new path without touching its text, since a rename
+    /// doesn't change a single pixel. Returns false if `from` wasn't indexed.
+    pub fn rename(&mut self, from: &Path, to: &Path) -> Result<bool> {
+        let tx = self.db.transaction()?;
+        delete(&tx, &path_str(to))?;
+        let moved = tx.execute(
+            "UPDATE shots SET path = ?2 WHERE path = ?1",
+            params![path_str(from), path_str(to)],
+        )?;
+        tx.commit()?;
+        Ok(moved > 0)
+    }
+
     /// Returns whether there was anything to remove.
     pub fn remove(&mut self, path: &Path) -> Result<bool> {
         let tx = self.db.transaction()?;
@@ -460,6 +473,40 @@ mod tests {
         assert!(!idx.remove(Path::new("/shots/youtube.png")).unwrap());
         assert!(idx.search("donutsmp", 10).unwrap().is_empty());
         assert_eq!(idx.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn rename_keeps_the_text() {
+        let mut idx = sample();
+        assert!(
+            idx.rename(
+                Path::new("/shots/youtube.png"),
+                Path::new("/shots/moved.png")
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            paths(&idx.search("donutsmp", 10).unwrap()),
+            ["/shots/moved.png"]
+        );
+        assert!(idx.is_current(Path::new("/shots/moved.png"), 100).unwrap());
+        assert!(
+            !idx.rename(Path::new("/shots/youtube.png"), Path::new("/x.png"))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn rename_onto_an_existing_shot_replaces_it() {
+        let mut idx = sample();
+        idx.rename(Path::new("/shots/youtube.png"), Path::new("/shots/pr.png"))
+            .unwrap();
+        assert_eq!(idx.len().unwrap(), 1);
+        assert_eq!(
+            paths(&idx.search("donutsmp", 10).unwrap()),
+            ["/shots/pr.png"]
+        );
+        assert!(idx.search("eviocgrab", 10).unwrap().is_empty());
     }
 
     #[test]
