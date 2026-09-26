@@ -18,9 +18,13 @@ directories = "6.0"
 # testing on a few thousand real screenshots is the normal dev loop here.
 [profile.dev]
 opt-level = 1
+debug = "line-tables-only"
 
+# Full debug info for gpui, wgpu and the rest filled 18 GB of target/debug
+# and ran the disk out. Backtraces through our own code are what matter.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
 [profile.release]
 lto = "thin"
