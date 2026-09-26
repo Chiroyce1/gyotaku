@@ -3,6 +3,7 @@ mod grid;
 mod images;
 mod input;
 mod resident;
+mod setup;
 mod spring;
 mod theme;
 
@@ -60,7 +61,11 @@ fn main() -> Result<()> {
                 .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
                 .expect("the bundled fonts load");
             bind_keys(cx);
-            toggle(windowed, cx);
+            cx.set_global(Launch {
+                windowed,
+                resident: listener.is_some(),
+            });
+            toggle(cx);
 
             let Some(listener) = listener else { return };
             let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
@@ -73,7 +78,7 @@ fn main() -> Result<()> {
             });
             cx.spawn(async move |cx| {
                 while knocked.next().await.is_some() {
-                    cx.update(|cx| toggle(windowed, cx));
+                    cx.update(toggle);
                 }
             })
             .detach();
@@ -91,13 +96,36 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// How this process was started, for the parts of the app that need to
+/// close and reopen the window themselves.
+struct Launch {
+    windowed: bool,
+    resident: bool,
+}
+
+impl Global for Launch {}
+
+/// Whether closing the window leaves the process running.
+pub(crate) fn is_resident(cx: &App) -> bool {
+    cx.try_global::<Launch>().is_some_and(|l| l.resident)
+}
+
 /// Opens the search window, or closes it if it's already up, so one key
 /// both summons and dismisses it.
-fn toggle(windowed: bool, cx: &mut App) {
+fn toggle(cx: &mut App) {
     if let Some(open) = cx.windows().first().copied() {
         let _ = open.update(cx, |_, window, _| window.remove_window());
         return;
     }
+    summon(cx);
+}
+
+/// Opens the window if it isn't open.
+pub(crate) fn summon(cx: &mut App) {
+    if !cx.windows().is_empty() {
+        return;
+    }
+    let windowed = cx.try_global::<Launch>().is_some_and(|l| l.windowed);
     let size = window_size(cx);
     let window = if windowed {
         None
@@ -148,6 +176,10 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-o", OpenExternal, Some("Gyotaku")),
         KeyBinding::new("ctrl-shift-o", Reveal, Some("Gyotaku")),
         KeyBinding::new("ctrl-q", Quit, Some("Gyotaku")),
+        KeyBinding::new("ctrl-,", OpenSettings, Some("Gyotaku")),
+        KeyBinding::new("space", Toggle, Some("Panel")),
+        KeyBinding::new("delete", Remove, Some("Panel")),
+        KeyBinding::new("backspace", Remove, Some("Panel")),
         KeyBinding::new("backspace", Backspace, Some("TextInput")),
         KeyBinding::new("ctrl-backspace", DeleteWord, Some("TextInput")),
         KeyBinding::new("delete", Delete, Some("TextInput")),

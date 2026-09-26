@@ -1,4 +1,5 @@
 use gpui::{Global, Hsla, WindowAppearance, rgb, rgba};
+use gyotaku_core::ThemeChoice;
 
 /// The screenshots are the colour. Everything around them stays quiet, and
 /// there is exactly one accent: shu, the vermilion of a hanko seal, used only
@@ -21,21 +22,30 @@ pub struct Theme {
     pub accent_wash: Hsla,
     pub hover_wash: Hsla,
     pub keycap: Hsla,
+    /// The groove of a switch that's off.
+    pub track: Hsla,
 }
 
 impl Global for Theme {}
 
 impl Theme {
-    /// Follows the system, unless GYOTAKU_THEME says light or dark.
-    pub fn for_appearance(appearance: WindowAppearance) -> Self {
+    /// The choice from settings, falling back to the system's appearance.
+    /// GYOTAKU_THEME=light or dark beats both, for testing.
+    pub fn resolve(choice: ThemeChoice, appearance: WindowAppearance) -> Self {
         match std::env::var("GYOTAKU_THEME").as_deref() {
             Ok("light") => return Self::light(),
             Ok("dark") => return Self::dark(),
             _ => {}
         }
-        match appearance {
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::light(),
+        match (choice, appearance) {
+            (ThemeChoice::Light, _) => Self::light(),
+            (ThemeChoice::Dark, _) => Self::dark(),
+            (ThemeChoice::System, WindowAppearance::Dark | WindowAppearance::VibrantDark) => {
+                Self::dark()
+            }
+            (ThemeChoice::System, WindowAppearance::Light | WindowAppearance::VibrantLight) => {
+                Self::light()
+            }
         }
     }
 
@@ -53,6 +63,7 @@ impl Theme {
             accent_wash: rgba(0xe053_1f2e).into(),
             hover_wash: rgba(0x1818_1a12).into(),
             keycap: rgb(0xebeae6).into(),
+            track: rgb(0xdad9d4).into(),
         }
     }
 
@@ -70,6 +81,7 @@ impl Theme {
             accent_wash: rgba(0xff74_3833).into(),
             hover_wash: rgba(0xffff_ff14).into(),
             keycap: rgb(0x26262a).into(),
+            track: rgb(0x3a3a3f).into(),
         }
     }
 }

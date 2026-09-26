@@ -110,9 +110,56 @@ impl Images {
     }
 }
 
+/// Same cap as the indexer: nothing that needs more than 256 MB to decode,
+/// so one enormous image can't take a small laptop down with it. Sniffs the
+/// format from the contents, not the extension.
+fn open_image(path: &Path) -> Option<image::DynamicImage> {
+    let mut reader = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    reader.decode().ok()
+}
+
+/// Redraws a grid thumbnail from its screenshot, cut the same way the
+/// indexer cuts them (`gyotaku_core::tile_crop`, 480 wide, jpeg). Failing
+/// just means the tile stays blank, so errors are dropped.
+pub fn write_thumbnail(original: &Path, dest: &Path) {
+    let Some(img) = open_image(original) else {
+        return;
+    };
+    let (iw, ih) = (img.width(), img.height());
+    let crop = gyotaku_core::tile_crop(iw, ih);
+    let (cx, cy) = ((crop.x * iw as f32) as u32, (crop.y * ih as f32) as u32);
+    let (cw, ch) = ((crop.w * iw as f32) as u32, (crop.h * ih as f32) as u32);
+    let w = 480.min(cw).max(1);
+    let h = ((w as f32 * ch as f32 / cw.max(1) as f32).round() as u32).max(1);
+    let thumb = img
+        .crop_imm(cx, cy, cw, ch)
+        .resize_exact(w, h, FilterType::Triangle)
+        .into_rgb8();
+
+    let Some(dir) = dest.parent() else { return };
+    let _ = std::fs::create_dir_all(dir);
+    let tmp = dest.with_extension("tmp");
+    let Ok(file) = std::fs::File::create(&tmp) else {
+        return;
+    };
+    let mut out = std::io::BufWriter::new(file);
+    let encoded =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 78).encode_image(&thumb);
+    drop(out);
+    if encoded.is_ok() {
+        let _ = std::fs::rename(&tmp, dest);
+    }
+}
+
 /// Runs on a background thread.
 pub fn decode(path: &Path, max_side: u32) -> Option<Arc<RenderImage>> {
-    let mut img = image::open(path).ok()?;
+    let mut img = open_image(path)?;
     if img.width().max(img.height()) > max_side {
         img = img.resize(max_side, max_side, FilterType::Triangle);
     }

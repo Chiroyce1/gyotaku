@@ -1,3 +1,5 @@
+mod settings;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -15,13 +17,14 @@ use gpui::{
     RenderImage, SharedString, Subscription, Window, actions, canvas, div, ease_out_quint, img,
     list, point, prelude::*, px, size,
 };
-use gyotaku_core::{Hit, Index, Line, Rect};
+use gyotaku_core::{Config, Hit, Index, Line, Rect, ThemeChoice};
 
 use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
 use crate::input::{Changed, TextInput};
 use crate::spring::Spring;
 use crate::theme::Theme;
+use settings::{Key, Onboarding, Settings};
 
 actions!(
     gyotaku,
@@ -38,7 +41,10 @@ actions!(
         CopyImage,
         OpenExternal,
         Reveal,
-        Quit
+        Quit,
+        OpenSettings,
+        Toggle,
+        Remove
     ]
 );
 
@@ -111,6 +117,20 @@ pub struct Gyotaku {
     /// Scroll the selection back into view after the next layout, because
     /// relaying out the list loses its scroll position.
     reveal_selected: bool,
+
+    page: Page,
+    /// Focus for settings and onboarding, so typing there doesn't land in
+    /// the search field.
+    panel_focus: FocusHandle,
+    theme_choice: ThemeChoice,
+    /// Whether a window is showing this right now.
+    visible: bool,
+}
+
+enum Page {
+    Search,
+    Settings(Settings),
+    Onboarding(Onboarding),
 }
 
 struct Toast {
@@ -140,6 +160,28 @@ impl Gyotaku {
         let input = cx.new(|cx| TextInput::new(placeholder(searchable), cx));
         cx.subscribe(&input, |this, _, _: &Changed, cx| this.search(cx))
             .detach();
+        // Only a missing config means "never set up". One that doesn't parse
+        // (a typo made by hand) falls back to defaults rather than sending
+        // someone through onboarding, which would overwrite their file.
+        let (config, set_up) = match Config::load() {
+            Ok(Some(config)) => (config, true),
+            Ok(None) => (Config::default(), false),
+            Err(_) => (Config::default(), true),
+        };
+
+        // While a backfill runs, new shots keep landing in the index. Checking
+        // the count now and then lets them show up without reopening.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1500))
+                    .await;
+                if this.update(cx, |this, cx| this.tick(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         let mut this = Self {
             index,
@@ -165,7 +207,15 @@ impl Gyotaku {
             floating,
             appearance: None,
             reveal_selected: false,
+            page: Page::Search,
+            panel_focus: cx.focus_handle(),
+            theme_choice: config.theme,
+            visible: true,
         };
+        // No config means onboarding was never finished.
+        if !set_up {
+            this.start_onboarding(cx);
+        }
         this.attach(window, cx);
         this.search(cx);
         this
@@ -174,13 +224,30 @@ impl Gyotaku {
     /// Everything that belongs to one particular window. The view outlives
     /// its windows (every summon is a new one), so this runs for each.
     fn attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.set_global(Theme::for_appearance(window.appearance()));
-        self.appearance = Some(cx.observe_window_appearance(window, |_, window, cx| {
-            cx.set_global(Theme::for_appearance(window.appearance()));
+        cx.set_global(Theme::resolve(self.theme_choice, window.appearance()));
+        self.appearance = Some(cx.observe_window_appearance(window, |this, window, cx| {
+            cx.set_global(Theme::resolve(this.theme_choice, window.appearance()));
             cx.notify();
         }));
         self.tile_bounds.borrow_mut().clear();
         self.last_frame = Instant::now();
+        self.visible = true;
+    }
+
+    fn tick(&mut self, cx: &mut Context<Self>) {
+        if !self.visible || !matches!(self.page, Page::Search) {
+            return;
+        }
+        let searchable = self.index.visible_len().unwrap_or(self.searchable);
+        if searchable != self.searchable {
+            self.searchable = searchable;
+            self.input.update(cx, |input, cx| {
+                input.placeholder = placeholder(searchable);
+                cx.notify();
+            });
+            self.refresh(cx);
+            cx.notify();
+        }
     }
 
     /// Called when the same view is put into a new window, which is what
@@ -204,6 +271,7 @@ impl Gyotaku {
     /// Hidden, keep about a screen of thumbnails so reopening is instant,
     /// and let the rest go.
     pub fn hidden(&mut self, cx: &mut Context<Self>) {
+        self.visible = false;
         self.thumbs.shrink_to(THUMBS_KEPT_HIDDEN, cx);
         self.full.shrink_to(1, cx);
     }
@@ -257,13 +325,17 @@ impl Gyotaku {
 
     /// The decoded image for a path, or None while it decodes in the
     /// background (the view repaints when it lands).
+    /// `original` is the screenshot a thumbnail was made from. If the
+    /// thumbnail is missing (cleared in settings, say) it gets redrawn from
+    /// that. None for full size images.
     fn image(
         &mut self,
         path: &Path,
-        full: bool,
+        original: Option<&Path>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Arc<RenderImage>> {
+        let full = original.is_none();
         let store = if full {
             &mut self.full
         } else {
@@ -275,11 +347,17 @@ impl Gyotaku {
             Lookup::Start(max_side) => max_side,
         };
         let path = path.to_owned();
+        let original = original.map(Path::to_owned);
         cx.spawn(async move |this, cx| {
             let decoding = path.clone();
             let image = cx
                 .background_executor()
-                .spawn(async move { images::decode(&decoding, max_side) })
+                .spawn(async move {
+                    if let Some(original) = original.filter(|_| !decoding.exists()) {
+                        images::write_thumbnail(&original, &decoding);
+                    }
+                    images::decode(&decoding, max_side)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 let store = if full {
@@ -355,7 +433,15 @@ impl Gyotaku {
     // Actions. They're bound at the root, so they arrive whether the search
     // field or anything else has focus.
 
+    /// Settings and onboarding take over the arrows, enter and escape.
+    fn on_panel(&self) -> bool {
+        !matches!(self.page, Page::Search)
+    }
+
     fn back(&mut self, _: &Back, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_back(window, cx);
+        }
         if let Some(d) = &mut self.detail {
             if d.grow {
                 d.open.set_response(CLOSE_RESPONSE, 1.0);
@@ -373,7 +459,10 @@ impl Gyotaku {
     }
 
     /// Enter opens the full view, and from there, the file itself.
-    fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
+    fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_key(Key::Enter, window, cx);
+        }
         if self.detail.as_ref().is_some_and(|d| d.open.target() == 1.0) {
             self.open_selected(cx);
         } else {
@@ -381,7 +470,29 @@ impl Gyotaku {
         }
     }
 
-    fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+    fn toggle(&mut self, _: &Toggle, window: &mut Window, cx: &mut Context<Self>) {
+        self.panel_key(Key::Space, window, cx);
+    }
+
+    fn remove(&mut self, _: &Remove, window: &mut Window, cx: &mut Context<Self>) {
+        self.panel_key(Key::Remove, window, cx);
+    }
+
+    fn open_settings_action(
+        &mut self,
+        _: &OpenSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.page, Page::Search) {
+            self.open_settings(window, cx);
+        }
+    }
+
+    fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_key(Key::Up, window, cx);
+        }
         if self.detail.is_none() {
             let to = self
                 .located
@@ -391,7 +502,10 @@ impl Gyotaku {
         }
     }
 
-    fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+    fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_key(Key::Down, window, cx);
+        }
         if self.detail.is_none() {
             let to = self
                 .located
@@ -401,15 +515,21 @@ impl Gyotaku {
         }
     }
 
-    fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
+    fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_key(Key::Left, window, cx);
+        }
         self.select(self.selected.checked_sub(1), cx);
     }
 
-    fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
+    fn right(&mut self, _: &Right, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return self.panel_key(Key::Right, window, cx);
+        }
         self.select(Some(self.selected + 1), cx);
     }
 
-    fn page(&mut self, down: bool, cx: &mut Context<Self>) {
+    fn jump(&mut self, down: bool, cx: &mut Context<Self>) {
         let mut at = self.selected;
         for _ in 0..4 {
             match self
@@ -425,14 +545,21 @@ impl Gyotaku {
     }
 
     fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.page(false, cx);
+        if !self.on_panel() {
+            self.jump(false, cx);
+        }
     }
 
     fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.page(true, cx);
+        if !self.on_panel() {
+            self.jump(true, cx);
+        }
     }
 
     fn copy_text(&mut self, _: &CopyText, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            return;
+        }
         let lines = match &self.detail {
             Some(d) if !d.picked.is_empty() => {
                 d.picked.iter().map(|&i| d.lines[i].clone()).collect()
@@ -462,7 +589,7 @@ impl Gyotaku {
     }
 
     fn copy_image(&mut self, _: &CopyImage, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(hit) = self.hits.get(self.selected) else {
+        let Some(hit) = self.hits.get(self.selected).filter(|_| !self.on_panel()) else {
             return;
         };
         let message = if copy_image(&hit.path) {
@@ -653,7 +780,8 @@ impl Gyotaku {
     ) -> AnyElement {
         let theme = *cx.global::<Theme>();
         let path = self.thumb_paths[i].clone();
-        let thumb = self.image(&path, false, window, cx);
+        let original = self.hits[i].path.clone();
+        let thumb = self.image(&path, Some(&original), window, cx);
         let lines = self.matched_lines(i);
         let hit = &self.hits[i];
         let crop = gyotaku_core::tile_crop(hit.width, hit.height);
@@ -762,7 +890,7 @@ impl Gyotaku {
         .into_any_element()
     }
 
-    fn render_header(&self, theme: Theme) -> impl IntoElement + use<> {
+    fn render_header(&self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
         // While searching, how many matched. While browsing, when the selected
         // one was taken, which is the one thing the grid itself can't show.
         let count = if self.searching() {
@@ -795,13 +923,23 @@ impl Gyotaku {
                     .child(self.input.clone()),
             )
             .child(div().text_sm().text_color(theme.muted).child(count))
+            .child(
+                div()
+                    .id("settings-hint")
+                    .cursor(CursorStyle::PointingHand)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_settings(window, cx)
+                    }))
+                    .child(hint("ctrl ,", "settings", theme)),
+            )
+            .into_any_element()
     }
 
     fn render_empty(&self, theme: Theme) -> impl IntoElement + use<> {
         let (title, body): (SharedString, SharedString) = if self.searchable == 0 {
             (
-                "nothing indexed yet".into(),
-                "run gyotaku watch and screenshots show up here as they're read".into(),
+                "nothing read yet".into(),
+                "screenshots show up here as they're read. if nothing happens, check settings (ctrl ,)".into(),
             )
         } else {
             (
@@ -851,8 +989,8 @@ impl Gyotaku {
         let shown = self.detail.as_ref()?.hit;
         let thumb_path = self.thumb_paths.get(shown)?.clone();
         let full_path = self.hits.get(shown)?.path.clone();
-        let thumb = self.image(&thumb_path, false, window, cx);
-        let full = self.image(&full_path, true, window, cx);
+        let thumb = self.image(&thumb_path, Some(&full_path), window, cx);
+        let full = self.image(&full_path, None, window, cx);
         let d = self.detail.as_mut()?;
         let hit = self.hits.get(d.hit)?;
         let p = d.open.value;
@@ -1070,7 +1208,10 @@ impl Gyotaku {
 
 impl Focusable for Gyotaku {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.input.focus_handle(cx)
+        match self.page {
+            Page::Search => self.input.focus_handle(cx),
+            Page::Settings(_) | Page::Onboarding(_) => self.panel_focus.clone(),
+        }
     }
 }
 
@@ -1098,20 +1239,39 @@ impl Render for Gyotaku {
             self.relayout(width);
         }
 
-        let body: AnyElement = if self.hits.is_empty() {
-            self.render_empty(theme).into_any_element()
-        } else {
-            list(self.list.clone(), cx.processor(Self::render_row))
-                .flex_1()
-                .size_full()
-                .pt(px(6.))
-                .into_any_element()
-        };
-
-        let detail = self.render_detail(window, cx);
-        let scrollbar = self.render_scrollbar(theme);
         let toast = self.render_toast(theme);
-        let header = self.render_header(theme);
+        let mut content: Vec<AnyElement> = match self.page {
+            Page::Settings(_) => vec![self.render_settings(theme, cx)],
+            Page::Onboarding(_) => vec![self.render_onboarding(theme, cx)],
+            Page::Search => {
+                let body: AnyElement = if self.hits.is_empty() {
+                    self.render_empty(theme).into_any_element()
+                } else {
+                    list(self.list.clone(), cx.processor(Self::render_row))
+                        .flex_1()
+                        .size_full()
+                        .pt(px(6.))
+                        .into_any_element()
+                };
+                let mut content = vec![self.render_header(theme, cx), body];
+                content.extend(self.render_scrollbar(theme).map(|s| s.into_any_element()));
+                content.extend(self.render_detail(window, cx));
+                content
+            }
+        };
+        // Settings and onboarding get their own focus and key context, so
+        // space and delete mean "toggle" and "remove" there instead of typing.
+        let panel = self.on_panel().then(|| {
+            div()
+                .key_context("Panel")
+                .track_focus(&self.panel_focus)
+                .on_action(cx.listener(Self::toggle))
+                .on_action(cx.listener(Self::remove))
+                .flex_1()
+                .flex()
+                .flex_col()
+                .children(content.drain(..))
+        });
 
         div()
             .key_context("Gyotaku")
@@ -1128,6 +1288,7 @@ impl Render for Gyotaku {
             .on_action(cx.listener(Self::open_external))
             .on_action(cx.listener(Self::reveal))
             .on_action(cx.listener(Self::quit))
+            .on_action(cx.listener(Self::open_settings_action))
             .relative()
             .size_full()
             .flex()
@@ -1140,10 +1301,8 @@ impl Render for Gyotaku {
             })
             .text_color(theme.text)
             .font_family("IBM Plex Sans")
-            .child(header)
-            .child(body)
-            .children(scrollbar)
-            .children(detail)
+            .children(panel)
+            .children(content)
             .children(toast)
     }
 }
