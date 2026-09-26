@@ -209,8 +209,19 @@ impl Index {
 
     /// Every whitespace separated term has to appear somewhere in the shot.
     /// An empty query returns the newest shots, which is what the app shows
-    /// before you type anything.
+    /// before you type anything. Each hit comes with the lines that matched.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+        let mut hits = self.find(query, limit)?;
+        for hit in &mut hits {
+            hit.lines = self.matching_lines(hit.id, query)?;
+        }
+        Ok(hits)
+    }
+
+    /// Same as `search` but without the lines. Fetching those is most of the
+    /// cost of a broad query (two letters can match 2000 shots), and a grid
+    /// only ever shows a few dozen at a time, so the app asks per tile.
+    pub fn find(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
         let terms: Vec<&str> = query.split_whitespace().collect();
         let (long, short): (Vec<&str>, Vec<&str>) =
             terms.iter().partition(|t| t.chars().count() >= 3);
@@ -241,8 +252,8 @@ impl Index {
         sql.push_str(" LIMIT ?");
         args.push(Value::Integer(limit as i64));
 
-        let mut stmt = self.db.prepare(&sql)?;
-        let mut hits = stmt
+        let mut stmt = self.db.prepare_cached(&sql)?;
+        let hits = stmt
             .query_map(params_from_iter(args), |r| {
                 Ok(Hit {
                     id: r.get(0)?,
@@ -254,18 +265,21 @@ impl Index {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        if !terms.is_empty() {
-            let needles: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
-            for hit in &mut hits {
-                hit.lines = self.lines(hit.id)?;
-                hit.lines.retain(|l| {
-                    let text = l.text.to_lowercase();
-                    needles.iter().any(|n| text.contains(n.as_str()))
-                });
-            }
-        }
         Ok(hits)
+    }
+
+    /// The lines of one shot that contain any of the query's terms.
+    pub fn matching_lines(&self, shot_id: i64, query: &str) -> Result<Vec<Line>> {
+        let needles: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        if needles.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut lines = self.lines(shot_id)?;
+        lines.retain(|l| {
+            let text = l.text.to_lowercase();
+            needles.iter().any(|n| text.contains(n.as_str()))
+        });
+        Ok(lines)
     }
 
     pub fn lines(&self, shot_id: i64) -> Result<Vec<Line>> {
@@ -565,6 +579,17 @@ mod tests {
             ["/shots/youtube.png"]
         );
         assert_eq!(idx.search("", 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn find_is_search_without_the_lines() {
+        let idx = sample();
+        let found = idx.find("subscribe later", 10).unwrap();
+        assert_eq!(paths(&found), ["/shots/youtube.png"]);
+        assert!(found[0].lines.is_empty());
+        let lines = idx.matching_lines(found[0].id, "subscribe later").unwrap();
+        assert_eq!(lines, idx.search("subscribe later", 10).unwrap()[0].lines);
+        assert!(idx.matching_lines(found[0].id, "  ").unwrap().is_empty());
     }
 
     #[test]
