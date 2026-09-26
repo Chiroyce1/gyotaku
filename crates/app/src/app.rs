@@ -12,8 +12,8 @@ use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context,
     CursorStyle, ElementId, Entity, FocusHandle, Focusable, FontWeight, ListAlignment, ListOffset,
     ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    RenderImage, SharedString, Window, actions, canvas, div, ease_out_quint, img, list, point,
-    prelude::*, px, size,
+    RenderImage, SharedString, Subscription, Window, actions, canvas, div, ease_out_quint, img,
+    list, point, prelude::*, px, size,
 };
 use gyotaku_core::{Hit, Index, Line, Rect};
 
@@ -62,6 +62,7 @@ const OPEN_RESPONSE: f32 = 0.26;
 const CLOSE_RESPONSE: f32 = 0.2;
 const FADE_RESPONSE: f32 = 0.14;
 const PRESS: Duration = Duration::from_millis(110);
+const THUMBS_KEPT_HIDDEN: usize = 40;
 const TOAST_SHOWN: Duration = Duration::from_millis(1400);
 const TOAST_FADE: Duration = Duration::from_millis(120);
 
@@ -106,6 +107,10 @@ pub struct Gyotaku {
     last_frame: Instant,
     /// Drawn as a floating panel (layer shell) rather than filling a window.
     floating: bool,
+    appearance: Option<Subscription>,
+    /// Scroll the selection back into view after the next layout, because
+    /// relaying out the list loses its scroll position.
+    reveal_selected: bool,
 }
 
 struct Toast {
@@ -132,19 +137,9 @@ struct Detail {
 impl Gyotaku {
     pub fn new(index: Index, floating: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let searchable = index.visible_len().unwrap_or(0);
-        let placeholder = match searchable {
-            0 => "nothing to search yet".into(),
-            1 => "search 1 screenshot".into(),
-            n => format!("search {} screenshots", thousands(n)).into(),
-        };
-        let input = cx.new(|cx| TextInput::new(placeholder, cx));
+        let input = cx.new(|cx| TextInput::new(placeholder(searchable), cx));
         cx.subscribe(&input, |this, _, _: &Changed, cx| this.search(cx))
             .detach();
-        cx.observe_window_appearance(window, |_, window, cx| {
-            cx.set_global(Theme::for_appearance(window.appearance()));
-            cx.notify();
-        })
-        .detach();
 
         let mut this = Self {
             index,
@@ -168,12 +163,72 @@ impl Gyotaku {
             toasts: 0,
             last_frame: Instant::now(),
             floating,
+            appearance: None,
+            reveal_selected: false,
         };
+        this.attach(window, cx);
         this.search(cx);
         this
     }
 
-    fn search(&mut self, cx: &mut Context<Self>) {
+    /// Everything that belongs to one particular window. The view outlives
+    /// its windows (every summon is a new one), so this runs for each.
+    fn attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.set_global(Theme::for_appearance(window.appearance()));
+        self.appearance = Some(cx.observe_window_appearance(window, |_, window, cx| {
+            cx.set_global(Theme::for_appearance(window.appearance()));
+            cx.notify();
+        }));
+        self.tile_bounds.borrow_mut().clear();
+        self.last_frame = Instant::now();
+    }
+
+    /// Called when the same view is put into a new window, which is what
+    /// makes it open exactly where it was left: same query, same selection,
+    /// same scroll, even the same shot open. Only if screenshots arrived in
+    /// the meantime are the results redone, keeping the selection.
+    pub fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.attach(window, cx);
+        let searchable = self.index.visible_len().unwrap_or(self.searchable);
+        if searchable != self.searchable {
+            self.searchable = searchable;
+            self.input.update(cx, |input, cx| {
+                input.placeholder = placeholder(searchable);
+                cx.notify();
+            });
+            self.refresh(cx);
+        }
+        cx.notify();
+    }
+
+    /// Hidden, keep about a screen of thumbnails so reopening is instant,
+    /// and let the rest go.
+    pub fn hidden(&mut self, cx: &mut Context<Self>) {
+        self.thumbs.shrink_to(THUMBS_KEPT_HIDDEN, cx);
+        self.full.shrink_to(1, cx);
+    }
+
+    /// Runs the current query again without resetting where you are.
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let selected = self.hits.get(self.selected).map(|h| h.id);
+        let open = self
+            .detail
+            .as_ref()
+            .and_then(|d| self.hits.get(d.hit))
+            .map(|h| h.id);
+
+        self.load_hits(cx);
+        let at = |id: Option<i64>| id.and_then(|id| self.hits.iter().position(|h| h.id == id));
+        self.selected = at(selected).unwrap_or(0);
+        match (at(open), self.detail.as_mut()) {
+            (Some(ix), Some(d)) => d.hit = ix,
+            _ => self.detail = None,
+        }
+        self.laid_out_for = 0.0;
+        self.reveal_selected = true;
+    }
+
+    fn load_hits(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).content.to_string();
         let limit = if query.trim().is_empty() {
             BROWSE_LIMIT
@@ -188,6 +243,10 @@ impl Gyotaku {
             .map(|h| gyotaku_core::thumb_path(&h.path).unwrap_or_default())
             .collect();
         self.query = query;
+    }
+
+    fn search(&mut self, cx: &mut Context<Self>) {
+        self.load_hits(cx);
         self.generation += 1;
         self.selected = 0;
         self.laid_out_for = 0.0;
@@ -272,6 +331,11 @@ impl Gyotaku {
         self.located = grid::locate(&self.rows, self.hits.len());
         self.laid_out_for = width;
         self.list.reset(self.rows.len());
+        if std::mem::take(&mut self.reveal_selected)
+            && let Some(&(row, _)) = self.located.get(self.selected)
+        {
+            self.list.scroll_to_reveal_item(row);
+        }
     }
 
     fn select(&mut self, item: Option<usize>, cx: &mut Context<Self>) {
@@ -1160,6 +1224,14 @@ fn lerp_bounds(a: Bounds<Pixels>, b: Bounds<Pixels>, t: f32) -> Bounds<Pixels> {
             l(a.size.height, b.size.height),
         ),
     )
+}
+
+fn placeholder(searchable: usize) -> SharedString {
+    match searchable {
+        0 => "nothing to search yet".into(),
+        1 => "search 1 screenshot".into(),
+        n => format!("search {} screenshots", thousands(n)).into(),
+    }
 }
 
 fn thousands(n: usize) -> String {

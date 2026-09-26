@@ -11,14 +11,13 @@ use std::borrow::Cow;
 use anyhow::Result;
 use futures::StreamExt as _;
 use gpui::{
-    App, AppContext, Bounds, KeyBinding, QuitMode, Size, TitlebarOptions,
+    App, AppContext, Bounds, Entity, Global, KeyBinding, QuitMode, Size, TitlebarOptions,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, px, size,
 };
 use gpui_platform::application;
 use gyotaku_core::Index;
 
 use app::Gyotaku;
-use theme::Theme;
 
 const FONTS: [&[u8]; 3] = [
     include_bytes!("../fonts/IBMPlexSans-Regular.ttf"),
@@ -78,9 +77,16 @@ fn main() -> Result<()> {
                 }
             })
             .detach();
-            // The view and every image it decoded are gone by now. Hand the
-            // freed pages back so an idle gyotaku stays small.
-            cx.on_window_closed(|_, _| release_memory()).detach();
+            // The view lives on for next time, but most of its thumbnails
+            // don't need to. Hand the freed pages back so an idle gyotaku
+            // stays small.
+            cx.on_window_closed(|cx, _| {
+                if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
+                    view.update(cx, |view, cx| view.hidden(cx));
+                }
+                release_memory();
+            })
+            .detach();
         });
     Ok(())
 }
@@ -165,10 +171,21 @@ fn window_size(cx: &App) -> Size<gpui::Pixels> {
     )
 }
 
-fn build(floating: bool, cx: &mut gpui::Context<Gyotaku>, window: &mut gpui::Window) -> Gyotaku {
-    cx.set_global(Theme::for_appearance(window.appearance()));
+/// The one view, kept across windows so every summon picks up where the
+/// last one left off.
+struct Kept(Entity<Gyotaku>);
+
+impl Global for Kept {}
+
+fn root(floating: bool, window: &mut gpui::Window, cx: &mut App) -> Entity<Gyotaku> {
+    if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
+        view.update(cx, |view, cx| view.reopen(window, cx));
+        return view;
+    }
     let index = Index::open_default().expect("the index opens");
-    Gyotaku::new(index, floating, window, cx)
+    let view = cx.new(|cx| Gyotaku::new(index, floating, window, cx));
+    cx.set_global(Kept(view.clone()));
+    view
 }
 
 /// On Wayland compositors with layer shell (niri, sway, Hyprland, KDE) the
@@ -194,7 +211,7 @@ fn open_overlay(size: Size<gpui::Pixels>, cx: &mut App) -> Option<gpui::WindowHa
             }),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| build(true, cx, window)),
+        |window, cx| root(true, window, cx),
     )
     .ok()
 }
@@ -210,7 +227,7 @@ fn open_window(size: Size<gpui::Pixels>, cx: &mut App) -> gpui::WindowHandle<Gyo
             app_id: Some("gyotaku".into()),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| build(false, cx, window)),
+        |window, cx| root(false, window, cx),
     )
     .expect("a window opens")
 }

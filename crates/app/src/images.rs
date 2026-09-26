@@ -84,6 +84,18 @@ impl Images {
         }
     }
 
+    /// Drops everything but the `keep` most recently used.
+    pub fn shrink_to(&mut self, keep: usize, cx: &mut App) {
+        while self.order.len() > keep {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(Slot::Ready(image)) = self.slots.remove(&oldest) {
+                cx.drop_image(image, None);
+            }
+        }
+    }
+
     fn touch(&mut self, path: &Path) {
         if self.order.back().is_some_and(|p| p == path) {
             return;
