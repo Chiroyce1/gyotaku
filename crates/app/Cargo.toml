@@ -18,3 +18,9 @@ anyhow.workspace = true
 # fallback, so the window still opens on old integrated graphics.
 gpui = { git = "https://github.com/zed-industries/zed", rev = "0fb9a9da49993ee8061ff4a2feaa89966a79e91c" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "0fb9a9da49993ee8061ff4a2feaa89966a79e91c", features = ["font-kit", "wayland", "x11"] }
+env_logger = "0.11"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+jiff = "0.2"
+libc = "0.2"
+smallvec = "1"
+unicode-segmentation = "1"
