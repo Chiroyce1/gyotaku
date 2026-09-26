@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # Grouped so a week of patch bumps arrives as one PR instead of a dozen.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      # gpui comes from a pinned zed commit, and moving it is a deliberate
+      # upgrade: it can need a newer rust in rust-toolchain.toml, and the
+      # image leak workaround has to be checked against it by hand.
+      - dependency-name: gpui
+      - dependency-name: gpui_platform
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Actions are pinned to commit SHAs, so this is what keeps those pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - '*'
