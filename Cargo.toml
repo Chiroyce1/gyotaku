@@ -29,3 +29,10 @@ debug = false
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Optimised, but without the link time work, so the distro builds in CI
+# finish in minutes. Not for shipping.
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16

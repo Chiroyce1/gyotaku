@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt, clippy, tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config \
+            libfontconfig-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev
+      # rustup is on the runner, rust-toolchain.toml picks the version
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  # Builds from a clean checkout inside each distro's own image, with only
+  # the packages the README tells people to install, then reads a real
+  # screenshot. If a distro needs something the README doesn't say, this is
+  # where it shows up.
+  distro:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu 22.04
+            image: ubuntu:22.04
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config curl ca-certificates libfontconfig-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev
+          - name: debian 12
+            image: debian:12
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config curl ca-certificates libfontconfig-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev
+          - name: kali
+            image: kalilinux/kali-rolling
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config curl ca-certificates libfontconfig-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev
+          - name: arch
+            image: archlinux:latest
+            install: pacman -Syu --noconfirm --needed base-devel curl fontconfig libxkbcommon-x11 wayland libxcb
+          - name: fedora
+            image: fedora:latest
+            install: dnf install -y gcc gcc-c++ make pkgconf-pkg-config curl fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
+          - name: opensuse tumbleweed
+            image: opensuse/tumbleweed
+            install: zypper -n install gcc gcc-c++ make pkg-config curl tar gzip fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
+    steps:
+      - name: packages
+        run: ${{ matrix.install }}
+      - uses: actions/checkout@v4
+      - name: rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: build
+        run: cargo build --profile ci --locked
+      - name: test
+        run: cargo test --profile ci --locked -p gyotaku-core -p gyotaku-ocr -p gyotaku
+      - name: read a screenshot
+        run: |
+          ./target/ci/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
