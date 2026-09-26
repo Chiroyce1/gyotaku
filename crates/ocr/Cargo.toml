@@ -11,6 +11,8 @@ gyotaku-core.workspace = true
 anyhow.workspace = true
 fast_image_resize = { version = "5", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-ort = "=2.0.0-rc.13"
+# ONNX Runtime linked in statically, downloaded at build time over rustls, so
+# building needs no OpenSSL headers and the binary no runtime library.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-27"] }
 sha2 = "0.10"
 ureq = "3"
