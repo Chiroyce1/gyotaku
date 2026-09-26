@@ -76,6 +76,23 @@ what fixed it: stop using gpui's image loader. decode the thumbnail myself on a 
 - **single character lines are dropped.** UI icons come back as one confident character: a bell reads as 白, a grid icon as 品, a hamburger as 三.
 - **shu for found, ink for selected.** one accent colour, only ever meaning "the search found this".
 
+### no gpu, and small laptops
+
+tested by hiding every gpu driver (`VK_ICD_FILENAMES` pointing at Mesa's lavapipe only, or at nothing so it falls to llvmpipe opengl) and pinning to fewer cores with `taskset` and `LP_NUM_THREADS`. gpui picks the software adapter and says so (`gpu_specs().is_software_emulated`).
+
+- our own render code is 0.03 to 0.05 ms a frame everywhere. all the cost is rasterising, which on the cpu is ~0.4 cpu-seconds a frame at this window size.
+- so without a gpu the app goes calm: no flying tile, no press animation, short fades. and finished thumbnails repaint in batches every 20 ms instead of one frame each (paging brought in ~30 thumbnails, so ~30 frames). together: a session went from ~125 frames and 47 s of cpu to ~70 frames and 29 s.
+- **the bug this found: animations ran slower on slow machines.** each frame stepped the spring by at most 1/30 s whatever time had really passed. at 150 ms a frame a 0.2 s fade took seconds, and an escape pressed during it got swallowed re-closing the view, so on 2 cores the window seemed to ignore escape. now it steps by real time (up to 0.25 s) and a second escape goes to the next step.
+
+### testing through wtype
+
+`wtype` makes a new virtual keyboard with its own keymap on every call, and the first key of a call gets decoded with the previous call's keymap. so a lone `wtype -k Page_Down` after a `wtype -k Escape` arrives as escape. this made the benchmarks flaky for a good while (the first run it quit the app, which looked like a crash). fix: start every call with `-k Shift_L`, keycodes are handed out in order so the stale slot is always shift.
+
+### disk
+
+- the dev profile built gpui, wgpu and friends with full debug info: 18 GB of target/debug, which ran the disk out and killed the linker with a bus error. dependencies now build without debug info, 1.6 GB.
+- building in distro containers locally cost ~5 GB each, so that moved to github actions instead: ubuntu 22.04, debian 12, kali, arch, fedora, opensuse, each from a clean image with only the packages the readme lists.
+
 ### the backfill of my library
 
 5159 files, 5136 searchable, 23 skipped (all 1x1 to 8x3 px junk), 0 failures. 43m21s at 6 threads, 288 MB peak. index 22 MB, thumbnails 130 MB.
