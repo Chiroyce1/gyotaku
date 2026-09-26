@@ -95,6 +95,19 @@ impl Index {
         Ok(found.is_some())
     }
 
+    /// Whether this path is indexed as a real, showable screenshot.
+    pub fn is_visible(&self, path: &Path) -> Result<bool> {
+        let found = self
+            .db
+            .query_row(
+                "SELECT 1 FROM shots WHERE path = ?1 AND width > 0",
+                [path_str(path)],
+                |_| Ok(()),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     /// Stores a shot and its lines, replacing whatever was there for the same path.
     pub fn insert(&mut self, shot: &Shot, lines: &[Line]) -> Result<i64> {
         let tx = self.db.transaction()?;

@@ -161,7 +161,7 @@ fn index(indexer: &mut Indexer, path: &Path) {
             eprintln!("indexed {} ({lines} lines, {took:.1?})", path.display());
         }
         Ok(Outcome::Hidden(why)) => eprintln!("skipped {}: {why}", path.display()),
-        Ok(Outcome::Unchanged) => {}
+        Ok(Outcome::Unchanged | Outcome::Thumbnail) => {}
         // One bad file shouldn't take the watcher down with it.
         Err(e) => eprintln!("failed {}: {e:#}", path.display()),
     }

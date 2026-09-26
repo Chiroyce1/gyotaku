@@ -14,7 +14,6 @@ use image::codecs::jpeg::JpegEncoder;
 // this quality one lands around 20 to 40 KB, so a 5000 shot library is a
 // couple hundred MB of cache rather than a gigabyte.
 const THUMB_WIDTH: u32 = 480;
-const THUMB_MAX_HEIGHT: u32 = 1440;
 const THUMB_QUALITY: u8 = 78;
 
 // Below this it's an icon, a 1x2 test png, or a slip of the mouse.
@@ -24,6 +23,7 @@ const EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 
 pub enum Outcome {
     Unchanged,
+    Thumbnail,
     Indexed { lines: usize, took: Duration },
     Hidden(String),
 }
@@ -44,6 +44,15 @@ impl Indexer {
     pub fn index_file(&mut self, path: &Path) -> Result<Outcome> {
         let mtime = mtime(path)?;
         if self.index.is_current(path, mtime)? {
+            // The thumbnail cache can be wiped (or its format change) without
+            // the text going stale, and redrawing one is ~50 ms against ~600
+            // for OCR, so only the thumbnail gets redone.
+            let thumb = gyotaku_core::thumb_path(path)?;
+            if !thumb.exists() && self.index.is_visible(path)? {
+                write_thumbnail(&gyotaku_ocr::load_image(path)?, &thumb)?;
+                release_memory();
+                return Ok(Outcome::Thumbnail);
+            }
             return Ok(Outcome::Unchanged);
         }
 
@@ -167,18 +176,23 @@ fn mtime(path: &Path) -> Result<i64> {
         .unwrap_or(0))
 }
 
+/// Cut to exactly what the grid tile shows, see `gyotaku_core::tile_crop`.
 fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<()> {
-    let w = THUMB_WIDTH.min(img.width());
-    let h =
-        ((img.height() as u64 * w as u64 / img.width() as u64) as u32).clamp(1, THUMB_MAX_HEIGHT);
-    // A very tall shot keeps its top, which is where the title of a page or
-    // chat usually is, instead of being squashed into a sliver.
-    let src_h = (h as u64 * img.width() as u64 / w as u64) as f64;
+    let (iw, ih) = (img.width(), img.height());
+    let crop = gyotaku_core::tile_crop(iw, ih);
+    let (cw, ch) = (crop.w * iw as f32, crop.h * ih as f32);
+    let w = THUMB_WIDTH.min(cw as u32).max(1);
+    let h = ((w as f32 * ch / cw).round() as u32).max(1);
 
     let mut thumb = RgbImage::new(w, h);
     let opts = ResizeOptions::new()
         .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3))
-        .crop(0.0, 0.0, img.width() as f64, src_h.min(img.height() as f64));
+        .crop(
+            (crop.x * iw as f32) as f64,
+            (crop.y * ih as f32) as f64,
+            cw as f64,
+            ch as f64,
+        );
     Resizer::new().resize(img, &mut thumb, &opts)?;
 
     let dir = dest.parent().context("thumbnail path has no parent")?;
