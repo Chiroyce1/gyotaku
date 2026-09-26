@@ -1,0 +1,17 @@
+[Unit]
+Description=gyotaku, reads new screenshots so they can be searched
+Documentation=https://github.com/xevrion/gyotaku
+
+[Service]
+ExecStart=%h/.cargo/bin/gyotaku watch
+Restart=on-failure
+RestartSec=5
+# gyotaku watch already drops itself to idle priority, this just makes sure
+# systemd agrees, and caps it if a monster image ever sneaks in.
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+MemoryHigh=400M
+
+[Install]
+WantedBy=default.target
