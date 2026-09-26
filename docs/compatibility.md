@@ -1,70 +1,77 @@
-# compatibility
+# Compatibility
 
-what gyotaku runs on, what's been tested, and what it can't do yet. "not yet" means nobody has tried it, not that it's known to break. if you run it somewhere marked "not yet", an issue saying how it went (good or bad) is really useful.
+This page lists the platforms gyotaku supports and their verification status. "Not yet verified" means the configuration has not been tested, not that it is known to fail. Reports from untested configurations are welcome; use the [compatibility report](https://github.com/xevrion/gyotaku/issues/new?template=compatibility_report.yml) template.
 
-- [desktops](#desktops)
-- [graphics](#graphics)
-- [distros](#distros)
-- [cpus](#cpus)
-- [what it can't read](#what-it-cant-read)
-- [other limits](#other-limits)
+- [Desktop environments](#desktop-environments)
+- [Graphics](#graphics)
+- [Distributions](#distributions)
+- [CPU architectures](#cpu-architectures)
+- [Language support](#language-support)
+- [Known limitations](#known-limitations)
 
-## desktops
+## Desktop environments
 
-| | what happens | tested |
+| Environment | Behavior | Status |
 |---|---|---|
-| wayland with layer shell (KDE Plasma, sway, Hyprland, niri, river, Wayfire) | floats over everything, like a launcher | niri |
-| GNOME on wayland | a normal window | not yet |
-| X11 | a normal window | yes, through Xwayland |
+| Wayland with layer-shell (KDE Plasma, sway, Hyprland, niri, river, Wayfire) | Overlay above all windows | Verified on niri |
+| GNOME on Wayland | Regular window | Not yet verified |
+| X11 | Regular window | Verified through Xwayland |
 
-## graphics
+## Graphics
 
-| | what happens | tested |
+| Hardware | Renderer | Status |
 |---|---|---|
-| a dedicated gpu | draws with vulkan | RTX 4060, Nvidia 580 driver |
-| an integrated gpu or APU (Intel, AMD) | vulkan or opengl through Mesa, the same path as a dedicated gpu | not yet |
-| no gpu at all | Mesa's software renderer, with calmer motion | yes, vulkan and opengl, on 2, 4 and 28 cores |
+| Dedicated GPU | Vulkan | Verified: NVIDIA RTX 4060, driver 580 |
+| Integrated GPU or APU (Intel, AMD) | Vulkan or OpenGL through Mesa | Not yet verified |
+| No GPU | Mesa software rendering (lavapipe or llvmpipe), reduced motion | Verified with Vulkan and OpenGL on 2, 4 and 28 cores |
 
-without a gpu it notices on its own, and swaps the flying tile and the ink press animation for short fades, since every animated frame drawn on the cpu costs real battery.
+When software rendering is detected, animated transitions are replaced with short fades to reduce CPU usage.
 
-## distros
+## Distributions
 
-| | what happens | tested |
+| Distribution | Notes | Status |
 |---|---|---|
-| Ubuntu 22.04, Debian 12, Kali, Arch, Fedora, openSUSE | built from a clean image and tested on every push | [ci](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) |
-| older glibc distros | the ONNX Runtime it downloads runs on anything from Ubuntu 18.04 and Debian 10 on | not yet |
-| systemd | background reading as a user service | yes |
-| no systemd (Void, Artix and so on) | background reading from an XDG autostart entry | not yet |
-| musl based (Alpine, Void musl) | Microsoft ships no musl build of ONNX Runtime | not supported yet |
+| Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora, openSUSE Tumbleweed | Built and tested from a clean image on every commit | Verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) |
+| Older glibc-based distributions | ONNX Runtime requires glibc 2.27 (Ubuntu 18.04, Debian 10 or newer) | Not yet verified |
+| systemd | Background indexing as a user service | Verified |
+| Non-systemd (Void, Artix and others) | Background indexing through an XDG autostart entry | Not yet verified |
+| musl-based (Alpine, Void musl) | No ONNX Runtime build is published for musl | Not supported |
 
-## cpus
+## CPU architectures
 
-| | what happens | tested |
+| Architecture | ONNX Runtime | Status |
 |---|---|---|
-| x86_64 | ONNX Runtime is downloaded automatically | yes |
-| 64 bit ARM | ONNX Runtime is downloaded automatically | not yet |
-| anything else (RISC-V, 32 bit) | install ONNX Runtime yourself, see below | no |
+| x86_64 | Downloaded automatically | Verified |
+| aarch64 | Downloaded automatically | Not yet verified |
+| Other (RISC-V, 32-bit) | Must be provided manually | Not supported |
 
-for a cpu Microsoft doesn't publish ONNX Runtime for, build or install it yourself, then point gyotaku at it:
+On architectures without an official ONNX Runtime build, build or install it separately and set `ORT_DYLIB_PATH`:
 
 ```sh
 export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
 ```
 
-set it for the background reader too, for example with `systemctl --user edit gyotaku-watch` and an `Environment=ORT_DYLIB_PATH=...` line.
+The background indexer needs the same variable. With systemd, run `systemctl --user edit gyotaku-watch` and add:
 
-## what it can't read
+```ini
+[Service]
+Environment=ORT_DYLIB_PATH=/path/to/libonnxruntime.so
+```
 
-the OCR model's alphabet is about 18,700 characters of chinese, latin, japanese kana and greek, and nothing else. that means:
+## Language support
 
-- **not read:** devanagari (hindi, marathi), cyrillic (russian, ukrainian), hangul (korean), arabic, hebrew, thai, and other scripts.
-- **only tested with english.** chinese and japanese should work, since the model was trained on them, but haven't been checked.
-- **rotated or vertical text isn't found.** the text finder only looks for upright lines, on purpose, since nearly all screenshot text is upright.
+The recognition model's character set contains approximately 18,700 characters covering Chinese, Latin, Japanese kana and Greek.
 
-a model with devanagari is on the list.
+| Script | Status |
+|---|---|
+| Latin (English) | Verified |
+| Chinese, Japanese | Supported by the model, not yet verified |
+| Devanagari, Cyrillic, Hangul, Arabic, Hebrew, Thai and others | Not supported |
 
-## other limits
+Text detection only considers horizontal lines. Rotated and vertical text is not detected.
 
-- **linux only, for now.** the index, the OCR and the ui toolkit all run on mac and windows. the background reader and the floating window don't yet.
-- **huge images are skipped.** anything bigger than about 64 megapixels isn't loaded, so one giant scan can't push a small laptop into swap. images under 16 px on a side are skipped too.
-- **it won't read your whole home folder or `/`.** pick the folders your screenshots are actually in.
+## Known limitations
+
+- **Linux only.** The index, OCR engine and UI toolkit are portable to macOS and Windows; the background indexer and overlay window are not yet.
+- **Image size limits.** Images larger than about 64 megapixels are skipped to bound memory usage. Images smaller than 16 pixels on either side are also skipped.
+- **Folder restrictions.** The home directory and `/` cannot be selected as indexed folders.

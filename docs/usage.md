@@ -1,123 +1,127 @@
-# using gyotaku
+# Usage
 
-- [searching](#searching)
-- [keys](#keys)
-- [the mouse](#the-mouse)
-- [settings](#settings)
-- [the background reader](#the-background-reader)
-- [the command line](#the-command-line)
-- [flags and environment variables](#flags-and-environment-variables)
-- [where things live](#where-things-live)
+- [Searching](#searching)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Mouse](#mouse)
+- [Settings](#settings)
+- [Background indexing](#background-indexing)
+- [Command-line interface](#command-line-interface)
+- [Flags and environment variables](#flags-and-environment-variables)
+- [File locations](#file-locations)
 
-## searching
+## Searching
 
-press your key and start typing. results update on every keystroke.
+Open the search window with your shortcut and start typing. Results update on every keystroke.
 
-- **partial words work.** `nutsmp` finds `donutsmp.net`, and `invoi` finds `invoice`. that also means a word the OCR got slightly wrong is still findable from the parts it got right.
-- **every word has to match.** `invoice march` finds screenshots that have both words anywhere in them, not necessarily on the same line. add words to narrow it down.
-- **case doesn't matter.**
-- **symbols are fine.** `c++`, `NOT` or a stray `"` are searched as plain text, never as syntax.
-- **one or two letter words work too.** the index is built from three letter pieces, so those are checked by reading through the text of the other matches instead.
-
-while you type, every thumbnail darkens and the lines you matched stay lit, outlined in red, so you can see why each shot came up.
-
-the best matches come first, and among equally good ones, the newest. with nothing typed, it shows your newest screenshots.
-
-## keys
-
-| key | in the grid | on an open shot |
-|---|---|---|
-| type | search | back to the grid, searching |
-| arrows, page up, page down | move | left and right go to the next result |
-| enter | open it | open the file in your image viewer |
-| ctrl c | copy its text | copy the picked lines, or all of it |
-| ctrl shift c | copy the image | same |
-| ctrl o | open the file in your image viewer | same |
-| ctrl shift o | show it in its folder | same |
-| ctrl , | settings | |
-| escape | clear the search, then close | back to the grid |
-
-pressing the key you bound gyotaku to also closes it.
-
-when you open gyotaku again, it's exactly where you left it: same search, same selection, same shot open.
-
-## the mouse
-
-- click a tile to open it.
-- on an open shot, hover to see the lines it read, click one to copy it, or drag a box to copy every line it touches.
-
-## settings
-
-ctrl , opens them.
-
-- **folders**: which folders gyotaku reads. add the ones your screenshot tool saves to. it won't take your whole home folder or `/`, pick the folders your screenshots are actually in.
-- **theme**: system, light or dark.
-- **background reading**: on or off. see [the background reader](#the-background-reader).
-- **cores per screenshot**: how many cpu cores reading one screenshot may use. more is faster, fewer leaves more for everything else. it runs at idle priority either way.
-- **thumbnail cache**: clear it to free disk. thumbnails are redrawn as you scroll.
-
-settings are saved to `~/.config/gyotaku/config.toml`, which you can also edit by hand. the background reader picks up changes to the folder list without a restart.
-
-## the background reader
-
-`gyotaku watch` reads every screenshot in your folders, then keeps watching them and reads each new one as it lands (0.77 s from saved to searchable, on my laptop). renamed and moved files keep their text without being read again, and deleted ones drop out of the index.
-
-it's careful with your machine:
-
-- it runs at idle cpu and io priority, so anything else you do comes first.
-- on battery, it slows down on an old backlog to one screenshot every few seconds. new screenshots are still read straight away.
-- the systemd service caps it at 400 MB of memory.
-- images bigger than about 64 megapixels, or smaller than 16 px on a side, are skipped.
-
-turning on background reading in settings (or in the first launch) sets it up for you:
-
-- **with systemd**: a user service at `~/.config/systemd/user/gyotaku-watch.service`, started now and at every login.
-- **without systemd**: an autostart entry at `~/.config/autostart/gyotaku-watch.desktop`, which your desktop runs at login.
-
-to set it up by hand instead, copy [`contrib/gyotaku-watch.service`](../contrib/gyotaku-watch.service) to `~/.config/systemd/user/` and run `systemctl --user enable --now gyotaku-watch`.
-
-to check on it:
-
-```sh
-systemctl --user status gyotaku-watch      # is it running
-journalctl --user -u gyotaku-watch -f      # what it's doing right now
-gyotaku stats                              # how many screenshots are searchable
-```
-
-## the command line
-
-```sh
-gyotaku search invoice march      # paths of matching screenshots, plus the lines that matched
-gyotaku search -n 50 invoice      # up to 50 results (default 20)
-gyotaku stats                     # where things live, how many are indexed
-gyotaku ocr some.png              # read one image and print its text, without indexing it
-gyotaku ocr some.png --boxes      # also print where each line sits, and how sure the OCR is
-gyotaku index [folders]           # read everything once, then exit
-gyotaku watch [folders]           # read everything, then keep watching
-```
-
-without folders, `index` and `watch` use the ones from settings, and `watch` follows changes to them live. `index`, `watch` and `ocr` take `--threads n` to set how many cores reading may use.
-
-`gyotaku --help` and `gyotaku <command> --help` list everything.
-
-## flags and environment variables
-
-| | |
+| Behavior | Detail |
 |---|---|
-| `gyotaku-app --window` | open as a normal window instead of floating over everything |
-| `gyotaku-app --once` | quit when closed, instead of staying running hidden for a faster next open |
-| `GYOTAKU_THEME=light` or `dark` | force a theme, overriding settings |
-| `GYOTAKU_FRAME_STATS=1` | print frame timings when the window closes |
-| `ORT_DYLIB_PATH=/path/to/libonnxruntime.so` | use your own ONNX Runtime instead of downloading one, see [compatibility](compatibility.md) |
+| Partial matching | Any substring matches. `nutsmp` finds `donutsmp.net`, and `invoi` finds `invoice`. Words the OCR misread slightly remain findable from their correct parts. |
+| Multiple words | All words must appear in the screenshot, in any order and on any line. `invoice march` matches a screenshot containing both. |
+| Case | Matching is case-insensitive. |
+| Special characters | Input is always treated as literal text. `c++`, `NOT` and unbalanced quotes are valid queries. |
+| Short words | Words of one or two characters are supported. The index is built from three-character sequences, so these are matched by scanning the results of the other terms. |
+| Ordering | Results are ranked by match quality, then by modification time, newest first. An empty query lists all screenshots, newest first. |
 
-## where things live
+While a query is active, each thumbnail is dimmed and the matched lines are highlighted in place.
 
+## Keyboard shortcuts
+
+| Key | Result grid | Open screenshot |
+|---|---|---|
+| Typing | Search | Return to the grid and search |
+| Arrow keys, Page Up, Page Down | Move the selection | Left and Right move to the adjacent result |
+| Enter | Open the selected screenshot | Open the file in the default image viewer |
+| Ctrl+C | Copy the screenshot's text | Copy the selected lines, or all text if none are selected |
+| Ctrl+Shift+C | Copy the image | Copy the image |
+| Ctrl+O | Open the file in the default image viewer | Same |
+| Ctrl+Shift+O | Show the file in its folder | Same |
+| Ctrl+, | Open settings | |
+| Escape | Clear the search, then close the window | Return to the grid |
+
+The shortcut bound to `gyotaku-app` also closes the window. When reopened, the window restores its previous state: the same query, selection and open screenshot.
+
+## Mouse
+
+- Click a thumbnail to open it.
+- On an open screenshot, hover to show the detected lines, click a line to copy it, or drag a rectangle to copy every line it intersects.
+
+## Settings
+
+Open settings with Ctrl+,.
+
+| Setting | Description |
+|---|---|
+| Folders | Folders to index. The home directory and `/` are rejected; select the specific folders your screenshots are saved to. |
+| Theme | System, light or dark. |
+| Background indexing | Enables or disables the background indexer. See [Background indexing](#background-indexing). |
+| Cores per screenshot | Number of CPU cores used to read a single screenshot. Higher values are faster; lower values leave more capacity for other work. Indexing always runs at idle priority. |
+| Thumbnail cache | Clears cached thumbnails. They are regenerated on demand. |
+
+Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list without a restart.
+
+## Background indexing
+
+`gyotaku watch` indexes every image in the configured folders, then monitors them with inotify and indexes new screenshots as they are saved (0.77 s from save to searchable on the reference machine). Renamed and moved files keep their existing text without being read again. Deleted files are removed from the index.
+
+Resource usage is constrained:
+
+- The process runs at idle CPU and I/O scheduling priority.
+- On battery power, processing of an existing backlog slows to one screenshot every few seconds. New screenshots are still indexed immediately.
+- The systemd service limits memory to 400 MB (`MemoryHigh`).
+- Images larger than about 64 megapixels, or smaller than 16 pixels on either side, are skipped.
+
+Enabling background indexing during first run or in settings installs one of the following:
+
+| System | Mechanism |
+|---|---|
+| systemd | User service at `~/.config/systemd/user/gyotaku-watch.service`, enabled and started immediately |
+| Other init systems | XDG autostart entry at `~/.config/autostart/gyotaku-watch.desktop`, started at login |
+
+To install the service manually, copy [`contrib/gyotaku-watch.service`](../contrib/gyotaku-watch.service) to `~/.config/systemd/user/` and run:
+
+```sh
+systemctl --user enable --now gyotaku-watch
 ```
-~/.config/gyotaku/config.toml       folders, theme, cores
-~/.local/share/gyotaku/index.db     the text of every screenshot
-~/.local/share/gyotaku/models/      the two OCR models
-~/.local/share/gyotaku/runtime/     ONNX Runtime
-~/.cache/gyotaku/thumbs/            grid thumbnails, safe to delete
+
+Status and logs:
+
+```sh
+systemctl --user status gyotaku-watch      # service state
+journalctl --user -u gyotaku-watch -f      # follow the log
+gyotaku stats                              # index location and size
 ```
 
-gyotaku never changes, moves or deletes your screenshots.
+## Command-line interface
+
+| Command | Description |
+|---|---|
+| `gyotaku search <words>...` | Print matching screenshot paths and the lines that matched. `-n, --limit <n>` sets the maximum number of results (default 20). |
+| `gyotaku stats` | Print file locations and the number of indexed screenshots. |
+| `gyotaku ocr <image>` | Read one image and print its text without indexing it. `--boxes` also prints each line's bounding box and confidence. |
+| `gyotaku index [folders]...` | Index the given folders, or the configured folders, then exit. |
+| `gyotaku watch [folders]...` | Index, then continue monitoring for new screenshots. Without arguments, follows configuration changes. |
+
+`index`, `watch` and `ocr` accept `--threads <n>` to set the number of cores used per screenshot. Run `gyotaku --help` or `gyotaku <command> --help` for full details.
+
+## Flags and environment variables
+
+| Option | Effect |
+|---|---|
+| `gyotaku-app --window` | Open as a regular window instead of an overlay. |
+| `gyotaku-app --once` | Exit when the window closes instead of remaining resident in the background. |
+| `GYOTAKU_THEME=light\|dark` | Override the theme setting. |
+| `GYOTAKU_FRAME_STATS=1` | Print frame timing statistics when the window closes. |
+| `RUST_LOG=warn` | Print warnings from the window and GPU layers. |
+| `ORT_DYLIB_PATH=<path>` | Use an existing `libonnxruntime.so` instead of downloading one. See [Compatibility](compatibility.md#cpu-architectures). |
+
+## File locations
+
+| Path | Contents |
+|---|---|
+| `~/.config/gyotaku/config.toml` | Folders, theme, cores per screenshot |
+| `~/.local/share/gyotaku/index.db` | Text index |
+| `~/.local/share/gyotaku/models/` | OCR models |
+| `~/.local/share/gyotaku/runtime/` | ONNX Runtime |
+| `~/.cache/gyotaku/thumbs/` | Thumbnails. Safe to delete. |
+
+gyotaku never modifies, moves or deletes screenshots.

@@ -1,89 +1,110 @@
-# troubleshooting
+# Troubleshooting
 
-if your problem isn't here, [open an issue](https://github.com/xevrion/gyotaku/issues/new/choose) with your distro, your desktop, and what `gyotaku-app` prints when you run it from a terminal.
+If your problem is not listed here, [open an issue](https://github.com/xevrion/gyotaku/issues/new/choose) and include your distribution, desktop environment, and the output of `RUST_LOG=warn gyotaku-app --once` run from a terminal.
 
-- [building](#building)
-- [opening the window](#opening-the-window)
-- [searching](#searching)
-- [the background reader](#the-background-reader)
-- [copying](#copying)
-- [speed](#speed)
+- [Building](#building)
+- [Launching](#launching)
+- [Searching](#searching)
+- [Background indexing](#background-indexing)
+- [Clipboard](#clipboard)
+- [Performance](#performance)
 
-## building
+## Building
 
-**the build fails with an error mentioning `cold_path`, or asking for a newer rustc.**
-your rust is too old. gyotaku needs 1.95. install rust with [rustup](https://rustup.rs) rather than your distro's package, and run `cargo install` from inside the cloned folder, so the `rust-toolchain.toml` there picks the right version.
+### Error mentioning `cold_path`, or requiring a newer `rustc`
 
-**the build fails looking for `fontconfig`, `xkbcommon`, `wayland` or `xcb`.**
-one of the packages from [step 1 of the install](../README.md#1-the-build-tools) is missing. run your distro's line again.
+The installed Rust version is older than 1.95. Install Rust with [rustup](https://rustup.rs) instead of the distribution package, and run `cargo install` from inside the cloned repository so that `rust-toolchain.toml` takes effect.
 
-**the build fails with `linker cc not found`.**
-the C compiler is missing, which is also in step 1 (`build-essential`, `base-devel`, or `gcc`).
+### Missing `fontconfig`, `xkbcommon`, `wayland` or `xcb`
 
-**the build dies partway with a bus error, or "no space left on device".**
-the disk filled up. the build needs about 3 GB free while it runs.
+A build dependency is missing. Re-run the command for your distribution from [step 1 of the installation](../README.md#1-install-build-dependencies).
 
-## opening the window
+### `linker 'cc' not found`
 
-**`gyotaku-app: command not found`.**
-`~/.cargo/bin` isn't on your PATH yet. open a new terminal, or log out and back in after installing rustup.
+No C compiler is installed. It is included in step 1 (`build-essential`, `base-devel` or `gcc`).
 
-**the key does nothing.**
-run `RUST_LOG=warn gyotaku-app --once` in a terminal. if that opens the window, your desktop can't find it by name, so give the key binding the full path from `which gyotaku-app`. if it prints an error, that error is what to put in an issue.
+### Bus error or "No space left on device"
 
-**on GNOME it opens as a normal window, not over everything.**
-that's expected. GNOME doesn't let apps float above other windows the way KDE, sway, Hyprland and other wlroots desktops do, so there it opens as a regular window.
+The disk ran out of space during the build. About 3 GB of free space is required.
 
-**after updating, the old version still opens.**
-the window stays running in the background between uses, so it has to be closed once: `pkill -x gyotaku-app`.
+## Launching
 
-## searching
+### `gyotaku-app: command not found`
 
-**nothing gets found.**
-run `gyotaku stats` to see how many screenshots are searchable and where the index lives. if it's zero:
+`~/.cargo/bin` is not on your `PATH`. Open a new terminal, or log out and back in after installing rustup.
 
-- check your folders in settings (ctrl ,) are the ones your screenshots are really saved to.
-- check background reading is on, and the reader is running: `systemctl --user status gyotaku-watch`.
-- or read everything once by hand with `gyotaku index`.
+### The keyboard shortcut does nothing
 
-**one particular screenshot isn't found.**
-see what gyotaku actually reads out of it with `gyotaku ocr path/to/shot.png`. if the text there is wrong or missing, that's the OCR, and an issue with the screenshot attached (if it's nothing private) helps a lot.
+Run `RUST_LOG=warn gyotaku-app --once` in a terminal.
 
-**text in hindi, russian, korean, arabic and so on isn't found.**
-the OCR model can't read those scripts yet. see [compatibility](compatibility.md#what-it-cant-read).
+- If the window opens, the desktop environment cannot resolve the command. Use the absolute path from `which gyotaku-app` in the shortcut.
+- If an error is printed, include it in an issue.
 
-**rotated or vertical text isn't found.**
-the text finder only looks for upright lines. same page, same section.
+### The window opens as a regular window on GNOME
 
-## the background reader
+This is expected. GNOME does not implement the Wayland layer-shell protocol used for the overlay, so gyotaku falls back to a regular window.
 
-**it isn't reading new screenshots.**
+### An old version opens after updating
+
+The window process remains resident between uses. Stop it once with `pkill -x gyotaku-app`.
+
+## Searching
+
+### No results for anything
+
+Run `gyotaku stats` to check the number of indexed screenshots. If it is zero:
+
+1. Confirm that the folders in settings (Ctrl+,) are the folders your screenshots are saved to.
+2. Confirm that background indexing is enabled and running: `systemctl --user status gyotaku-watch`.
+3. Alternatively, index once manually with `gyotaku index`.
+
+### A specific screenshot is not found
+
+Run `gyotaku ocr path/to/screenshot.png` to see the text gyotaku extracts. If the text is missing or incorrect, open an issue with the `ocr-accuracy` label and, if it contains no private information, attach the screenshot.
+
+### Text in Hindi, Russian, Korean, Arabic or other scripts is not found
+
+The recognition model does not support these scripts. See [Compatibility](compatibility.md#language-support).
+
+### Rotated or vertical text is not found
+
+Text detection only considers horizontal lines. See [Compatibility](compatibility.md#language-support).
+
+## Background indexing
+
+### New screenshots are not indexed
 
 ```sh
-systemctl --user status gyotaku-watch      # is it running
-journalctl --user -u gyotaku-watch -e      # the last thing it said
+systemctl --user status gyotaku-watch      # service state
+journalctl --user -u gyotaku-watch -e      # most recent log output
 ```
 
-on a distro without systemd, check `~/.config/autostart/gyotaku-watch.desktop` exists and your desktop runs autostart entries. you can always start it by hand with `gyotaku watch`.
+On systems without systemd, confirm that `~/.config/autostart/gyotaku-watch.desktop` exists and that your desktop environment runs XDG autostart entries. The indexer can also be started manually with `gyotaku watch`.
 
-**the first read failed while offline.**
-the models couldn't download. connect to the internet, and it tries again (the systemd service retries every 30 seconds).
+### Indexing failed on first run without network access
 
-**your cpu isn't x86_64 or ARM, or your distro uses musl (Alpine, Void musl).**
-Microsoft doesn't publish an ONNX Runtime gyotaku can download for these. see [compatibility](compatibility.md#cpus).
+The OCR models and ONNX Runtime could not be downloaded. Connect to the network; the systemd service retries every 30 seconds.
 
-## copying
+### Unsupported CPU architecture or musl-based distribution
 
-**"couldn't copy the image, is wl-copy installed?"**
-install `wl-clipboard` (wayland) or `xclip` (X11).
+Microsoft does not publish ONNX Runtime builds for these platforms. See [Compatibility](compatibility.md#cpu-architectures).
 
-**copied text is gone after the window closes.**
-on wayland, the clipboard belongs to the app that set it, so it disappears with that app. install `wl-clipboard` and gyotaku hands the clipboard to `wl-copy`, which keeps it alive.
+## Clipboard
 
-## speed
+### "couldn't copy the image, is wl-copy installed?"
 
-**the window is slow or stutters.**
-check the numbers in [performance](performance.md) for what to expect. if your gpu driver isn't working, gyotaku draws on the cpu instead, which is slower, and on purpose it swaps the flying and pressing animations for short fades.
+Install `wl-clipboard` on Wayland or `xclip` on X11.
 
-**reading screenshots slows everything else down.**
-it already runs at idle priority, but on a small laptop you can lower "cores per screenshot" in settings.
+### Copied content disappears after the window closes
+
+On Wayland, clipboard contents are owned by the application that set them. Install `wl-clipboard`; gyotaku then hands clipboard ownership to `wl-copy`, which persists after the window closes.
+
+## Performance
+
+### The window is slow or stutters
+
+Compare against the figures in [Performance](performance.md). If no working GPU driver is available, rendering falls back to the CPU, which is slower. In that mode, animations are intentionally replaced with short fades.
+
+### Indexing slows down other work
+
+Indexing already runs at idle priority. On systems with few cores, reduce "Cores per screenshot" in settings.
