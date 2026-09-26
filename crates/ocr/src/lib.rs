@@ -6,6 +6,7 @@ mod models;
 mod rec;
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use gyotaku_core::{Line, Rect};
@@ -28,6 +29,7 @@ impl Ocr {
     /// Loads both models, downloading them on first use. `threads` is how many
     /// cores one screenshot may use.
     pub fn new(threads: usize) -> Result<Self> {
+        load_runtime()?;
         let det = session(&models::ensure(&models::DET)?, threads)?;
         let rec = session(&models::ensure(&models::REC)?, threads)?;
         let alphabet = rec::alphabet(&rec)?;
@@ -66,6 +68,21 @@ impl Ocr {
 /// never something anyone searches for, so those go.
 fn worth_keeping(text: &str) -> bool {
     text.trim().chars().count() > 1
+}
+
+/// ONNX Runtime is loaded at run time rather than linked in, see
+/// `models::runtime` for why. Once per process.
+fn load_runtime() -> Result<()> {
+    static LOADED: OnceLock<()> = OnceLock::new();
+    if LOADED.get().is_some() {
+        return Ok(());
+    }
+    let lib = models::runtime()?;
+    ort::init_from(&lib)
+        .map_err(|e| anyhow::anyhow!("loading {}: {e}", lib.display()))?
+        .commit();
+    let _ = LOADED.set(());
+    Ok(())
 }
 
 fn session(model: &Path, threads: usize) -> Result<Session> {

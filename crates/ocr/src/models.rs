@@ -1,5 +1,5 @@
-use std::fs::{self, File};
-use std::io::{BufWriter, Read, Write};
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -40,6 +40,37 @@ pub const REC: Model = Model {
     sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
 };
 
+/// ONNX Runtime itself: Microsoft's official Linux build, fetched on first use
+/// like the models. It's built against glibc 2.27 and GCC 5's libstdc++, so it
+/// loads on anything from Ubuntu 18.04 and Debian 10 on. The prebuilt that the
+/// ort crate links statically needs glibc 2.38, which CI showed doesn't even
+/// link on Ubuntu 22.04 or Debian 12.
+struct Runtime {
+    url: &'static str,
+    sha256: &'static str,
+    /// Where the library sits inside Microsoft's tarball.
+    inner: &'static str,
+}
+
+const RUNTIME_FILE: &str = "libonnxruntime.so.1.28.2";
+
+#[cfg(target_arch = "x86_64")]
+const RUNTIME: Option<Runtime> = Some(Runtime {
+    url: "https://github.com/microsoft/onnxruntime/releases/download/v1.28.2/onnxruntime-linux-x64-1.28.2.tgz",
+    sha256: "d7209b8751b27b862b0c76332c2e20e203396edb5dab700ecf4bb485cf147415",
+    inner: "onnxruntime-linux-x64-1.28.2/lib/libonnxruntime.so.1.28.2",
+});
+
+#[cfg(target_arch = "aarch64")]
+const RUNTIME: Option<Runtime> = Some(Runtime {
+    url: "https://github.com/microsoft/onnxruntime/releases/download/v1.28.2/onnxruntime-linux-aarch64-1.28.2.tgz",
+    sha256: "f020b3d31106cc7db03889b4a5c21e7c38ce4a09ad26119c11d1ad6d3fa0ec04",
+    inner: "onnxruntime-linux-aarch64-1.28.2/lib/libonnxruntime.so.1.28.2",
+});
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+const RUNTIME: Option<Runtime> = None;
+
 pub fn models_dir() -> Result<PathBuf> {
     Ok(gyotaku_core::data_dir()?.join("models"))
 }
@@ -51,34 +82,68 @@ pub fn ensure(model: &Model) -> Result<PathBuf> {
     if path.exists() {
         return Ok(path);
     }
-    fs::create_dir_all(&dir)?;
     eprintln!("downloading {} (first run only)", model.file);
-    download(model, &path).with_context(|| format!("downloading {}", model.url))?;
+    let bytes = fetch(model.url, model.sha256)?;
+    write_atomically(&path, &bytes)?;
     Ok(path)
 }
 
-fn download(model: &Model, dest: &Path) -> Result<()> {
-    let part = dest.with_extension("part");
-    let mut body = ureq::get(model.url).call()?.into_body().into_reader();
-    let mut out = BufWriter::new(File::create(&part)?);
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 1 << 16];
-    loop {
-        let n = body.read(&mut buf)?;
-        if n == 0 {
-            break;
+/// The ONNX Runtime library to load. ORT_DYLIB_PATH wins if it's set, which
+/// is how a distro package can use its own onnxruntime instead.
+pub fn runtime() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("ORT_DYLIB_PATH") {
+        return Ok(path.into());
+    }
+    let path = gyotaku_core::data_dir()?.join("runtime").join(RUNTIME_FILE);
+    if path.exists() {
+        return Ok(path);
+    }
+    let Some(runtime) = RUNTIME else {
+        bail!(
+            "there's no official ONNX Runtime build for this cpu, install onnxruntime \
+             and point ORT_DYLIB_PATH at libonnxruntime.so"
+        );
+    };
+    eprintln!("downloading ONNX Runtime 1.28.2 (first run only)");
+    let archive = fetch(runtime.url, runtime.sha256)?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive.as_slice()));
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.as_ref() == Path::new(runtime.inner) {
+            let mut lib = Vec::new();
+            entry.read_to_end(&mut lib)?;
+            write_atomically(&path, &lib)?;
+            return Ok(path);
         }
-        hasher.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
     }
-    out.flush()?;
+    bail!("{} wasn't in the ONNX Runtime archive", runtime.inner)
+}
 
-    let got = format!("{:x}", hasher.finalize());
-    if got != model.sha256 {
-        fs::remove_file(&part)?;
-        bail!("checksum mismatch, expected {} got {got}", model.sha256);
+/// Downloads into memory and checks the hash before anything touches disk, so
+/// a changed or truncated file upstream fails loudly instead of quietly
+/// reading text differently.
+fn fetch(url: &str, sha256: &str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    ureq::get(url)
+        .call()
+        .with_context(|| format!("downloading {url}"))?
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("downloading {url}"))?;
+    let got = format!("{:x}", Sha256::digest(&bytes));
+    if got != sha256 {
+        bail!("{url} doesn't match its checksum, expected {sha256} got {got}");
     }
-    // Rename last so a half downloaded file never looks like a real model.
-    fs::rename(&part, dest)?;
+    Ok(bytes)
+}
+
+/// Written next to it and renamed over, so a half written file never looks
+/// like a real one.
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+    fs::create_dir_all(path.parent().context("no parent folder")?)?;
+    let part = path.with_extension("part");
+    fs::write(&part, bytes)?;
+    fs::rename(&part, path)?;
     Ok(())
 }
