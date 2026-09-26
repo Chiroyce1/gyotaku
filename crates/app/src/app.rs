@@ -686,6 +686,8 @@ impl Gyotaku {
     }
 
     fn render_header(&self, theme: Theme) -> impl IntoElement + use<> {
+        // While searching, how many matched. While browsing, when the selected
+        // one was taken, which is the one thing the grid itself can't show.
         let count = if self.searching() {
             let n = self.hits.len();
             match n {
@@ -694,7 +696,10 @@ impl Gyotaku {
                 _ => thousands(n),
             }
         } else {
-            String::new()
+            self.hits
+                .get(self.selected)
+                .map(|h| taken_at(h.mtime))
+                .unwrap_or_default()
         };
         div()
             .flex_none()
