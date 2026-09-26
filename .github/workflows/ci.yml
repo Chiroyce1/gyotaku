@@ -51,9 +51,7 @@ jobs:
           - name: fedora
             image: fedora:latest
             install: dnf install -y gcc gcc-c++ make pkgconf-pkg-config curl fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
-          # Tumbleweed's image starts on busybox's shell, and installing
-          # packages can swap it out from under the next step, so bash is
-          # installed up front and every step runs in it.
+          # The minimal Tumbleweed image has no bash, which the later steps use.
           - name: opensuse tumbleweed
             image: opensuse/tumbleweed
             install: zypper -n install bash gcc gcc-c++ make pkg-config curl tar gzip fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
@@ -65,7 +63,10 @@ jobs:
         shell: bash
         run: |
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          # The whole PATH, not GITHUB_PATH: an image that doesn't declare
+          # its own PATH (opensuse) would be left with nothing but cargo's
+          # folder, and then not even a shell for the next step.
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
       - name: build
         shell: bash
         run: cargo build --profile ci --locked
