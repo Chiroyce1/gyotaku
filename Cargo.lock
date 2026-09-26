@@ -2627,7 +2627,9 @@ dependencies = [
  "anyhow",
  "directories",
  "rusqlite",
+ "serde",
  "sha2",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

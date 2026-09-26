@@ -1,3 +1,4 @@
+mod config;
 mod index;
 
 use std::path::{Path, PathBuf};
@@ -5,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
+pub use config::{Config, ThemeChoice, pictures_dir, tidy};
 pub use index::{Hit, Index};
 
 /// A box in normalized image coordinates, so the same numbers work on a

@@ -10,4 +10,6 @@ repository.workspace = true
 anyhow.workspace = true
 directories.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+toml = "1"

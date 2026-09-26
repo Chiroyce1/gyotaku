@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gyotaku_core::Index;
+use gyotaku_core::{Config, Index};
 use gyotaku_ocr::Ocr;
 
 use indexer::{Indexer, Outcome};
@@ -27,18 +27,19 @@ enum Command {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
     },
-    /// Index every image in these folders (default: your Pictures folder) and exit
+    /// Index every image in these folders (default: the ones in your config) and exit
     Index {
         dirs: Vec<PathBuf>,
-        /// Cores to use per screenshot
-        #[arg(long, default_value_t = default_threads())]
-        threads: usize,
+        /// Cores to use per screenshot (default: from your config)
+        #[arg(long)]
+        threads: Option<usize>,
     },
-    /// Index everything, then keep watching for new screenshots, at idle priority
+    /// Index everything, then keep watching for new screenshots, at idle
+    /// priority. Without folders it follows your config as it changes.
     Watch {
         dirs: Vec<PathBuf>,
-        #[arg(long, default_value_t = default_threads())]
-        threads: usize,
+        #[arg(long)]
+        threads: Option<usize>,
     },
     /// Show where the index lives and how much is in it
     Stats,
@@ -69,8 +70,18 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Command::Index { dirs, threads } => index(&dirs_or_default(dirs), threads)?,
-        Command::Watch { dirs, threads } => watch::run(&dirs_or_default(dirs), threads)?,
+        Command::Index { dirs, threads } => {
+            let config = Config::load_or_default();
+            let dirs = if dirs.is_empty() {
+                config.folders
+            } else {
+                dirs
+            };
+            index(&dirs, threads.unwrap_or(config.threads))?
+        }
+        Command::Watch { dirs, threads } => {
+            watch::run((!dirs.is_empty()).then_some(dirs), threads)?
+        }
         Command::Stats => {
             let index = Index::open_default()?;
             println!(
@@ -91,14 +102,6 @@ fn main() -> Result<()> {
         } => ocr(&image, boxes, threads)?,
     }
     Ok(())
-}
-
-fn dirs_or_default(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
-    if dirs.is_empty() {
-        indexer::default_dirs()
-    } else {
-        dirs
-    }
 }
 
 fn index(dirs: &[PathBuf], threads: usize) -> Result<()> {

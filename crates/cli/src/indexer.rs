@@ -41,6 +41,11 @@ impl Indexer {
         })
     }
 
+    pub fn set_threads(&mut self, threads: usize) -> Result<()> {
+        self.ocr = Ocr::new(threads)?;
+        Ok(())
+    }
+
     pub fn index_file(&mut self, path: &Path) -> Result<Outcome> {
         let mtime = mtime(path)?;
         if self.index.is_current(path, mtime)? {
@@ -159,13 +164,6 @@ pub fn scan(dirs: &[PathBuf]) -> Vec<PathBuf> {
         .collect();
     found.sort_by(|a, b| b.cmp(a));
     found.into_iter().map(|(_, p)| p).collect()
-}
-
-pub fn default_dirs() -> Vec<PathBuf> {
-    let pictures = directories::UserDirs::new()
-        .and_then(|d| d.picture_dir().map(Path::to_path_buf))
-        .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join("Pictures")));
-    pictures.into_iter().collect()
 }
 
 fn mtime(path: &Path) -> Result<i64> {

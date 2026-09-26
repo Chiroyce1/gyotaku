@@ -7,6 +7,8 @@ use anyhow::{Result, bail};
 use notify::event::{AccessKind, AccessMode, ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
+use gyotaku_core::Config;
+
 use crate::indexer::{self, Indexer, Outcome};
 
 // How long a file has to sit untouched before it gets read. Some tools write a
@@ -23,10 +25,18 @@ struct Watch {
     leaving: HashMap<PathBuf, Instant>,
 }
 
-pub fn run(dirs: &[PathBuf], threads: usize) -> Result<()> {
+/// Folders given on the command line are fixed. Without them the watcher
+/// follows the config file, so adding or removing a folder in the app takes
+/// effect here straight away, no restart.
+pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     indexer::become_idle();
+    let config_path = Config::path()?;
+    let config = Config::load_or_default();
+    let mut threads_now = threads.unwrap_or(config.threads);
+    let mut folders = fixed.clone().unwrap_or(config.folders);
+
     let mut w = Watch {
-        indexer: Indexer::new(threads)?,
+        indexer: Indexer::new(threads_now)?,
         pending: HashMap::new(),
         leaving: HashMap::new(),
     };
@@ -39,15 +49,26 @@ pub fn run(dirs: &[PathBuf], threads: usize) -> Result<()> {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(tx)?;
-    for dir in dirs {
-        watcher.watch(dir, RecursiveMode::Recursive)?;
-        eprintln!("watching {}", dir.display());
+    for dir in &folders {
+        watch_folder(&mut watcher, dir);
+    }
+    let follow_config = fixed.is_none();
+    if follow_config && let Some(dir) = config_path.parent() {
+        std::fs::create_dir_all(dir)?;
+        watcher.watch(dir, RecursiveMode::NonRecursive)?;
     }
 
-    let mut backlog: VecDeque<PathBuf> = indexer::scan(dirs).into();
+    let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders).into();
     let mut caught_up = backlog.is_empty();
 
     loop {
+        let mut config_changed = false;
+        let mut take = |event: notify::Result<Event>, w: &mut Watch| -> Result<()> {
+            let event = event?;
+            config_changed |= follow_config && event.paths.iter().any(|p| p == &config_path);
+            w.on_event(event);
+            Ok(())
+        };
         // Block for as long as there is nothing else to do.
         let wait = if !w.pending.is_empty() || !w.leaving.is_empty() {
             SETTLE
@@ -57,12 +78,47 @@ pub fn run(dirs: &[PathBuf], threads: usize) -> Result<()> {
             Duration::from_secs(3600)
         };
         match rx.recv_timeout(wait) {
-            Ok(event) => w.on_event(event?),
+            Ok(event) => take(event, &mut w)?,
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => bail!("file watcher stopped"),
         }
         while let Ok(event) = rx.try_recv() {
-            w.on_event(event?);
+            take(event, &mut w)?;
+        }
+
+        // A config that doesn't parse (someone mid edit) is ignored until it does.
+        if config_changed && let Ok(Some(config)) = Config::load_from(&config_path) {
+            let added: Vec<PathBuf> = config
+                .folders
+                .iter()
+                .filter(|f| !folders.contains(f))
+                .cloned()
+                .collect();
+            for gone in folders.iter().filter(|f| !config.folders.contains(f)) {
+                let _ = watcher.unwatch(gone);
+                backlog.retain(|p| {
+                    !p.starts_with(gone) || config.folders.iter().any(|f| p.starts_with(f))
+                });
+                let dropped = w.forget_under(gone, &config.folders);
+                eprintln!(
+                    "stopped watching {} ({dropped} screenshots forgotten)",
+                    gone.display()
+                );
+            }
+            for dir in &added {
+                watch_folder(&mut watcher, dir);
+                // Newly added folders go to the front, it's what was just asked for.
+                for path in indexer::scan(std::slice::from_ref(dir)).into_iter().rev() {
+                    backlog.push_front(path);
+                }
+                caught_up = false;
+            }
+            if threads.is_none() && config.threads != threads_now {
+                threads_now = config.threads;
+                w.indexer.set_threads(threads_now)?;
+                eprintln!("reading with {threads_now} threads now");
+            }
+            folders = config.folders;
         }
 
         for path in settled(&mut w.leaving) {
@@ -93,6 +149,15 @@ pub fn run(dirs: &[PathBuf], threads: usize) -> Result<()> {
     }
 }
 
+/// A folder that isn't there (an unplugged drive, a typo in the config) is
+/// reported and skipped rather than taking the whole watcher down.
+fn watch_folder(watcher: &mut impl Watcher, dir: &Path) {
+    match watcher.watch(dir, RecursiveMode::Recursive) {
+        Ok(()) => eprintln!("watching {}", dir.display()),
+        Err(e) => eprintln!("can't watch {}: {e}", dir.display()),
+    }
+}
+
 /// Takes out every entry that's been quiet for at least SETTLE.
 fn settled(map: &mut HashMap<PathBuf, Instant>) -> Vec<PathBuf> {
     let now = Instant::now();
@@ -108,6 +173,21 @@ fn settled(map: &mut HashMap<PathBuf, Instant>) -> Vec<PathBuf> {
 }
 
 impl Watch {
+    /// Forgets every shot under `dir` that isn't also under one of `keep`
+    /// (folders can nest). Returns how many.
+    fn forget_under(&mut self, dir: &Path, keep: &[PathBuf]) -> usize {
+        let paths = self.indexer.index.paths().unwrap_or_default();
+        let gone: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| p.starts_with(dir) && !keep.iter().any(|k| p.starts_with(k)))
+            .collect();
+        for p in &gone {
+            self.pending.remove(p);
+            let _ = self.indexer.forget(p);
+        }
+        gone.len()
+    }
+
     fn on_event(&mut self, event: Event) {
         let now = Instant::now();
         let images = event.paths.iter().filter(|p| indexer::is_image(p));
