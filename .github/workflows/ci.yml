@@ -12,7 +12,7 @@ jobs:
     name: fmt, clippy, tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: packages
         run: |
           sudo apt-get update
@@ -51,22 +51,29 @@ jobs:
           - name: fedora
             image: fedora:latest
             install: dnf install -y gcc gcc-c++ make pkgconf-pkg-config curl fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
+          # Tumbleweed's image starts on busybox's shell, and installing
+          # packages can swap it out from under the next step, so bash is
+          # installed up front and every step runs in it.
           - name: opensuse tumbleweed
             image: opensuse/tumbleweed
-            install: zypper -n install gcc gcc-c++ make pkg-config curl tar gzip fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
+            install: zypper -n install bash gcc gcc-c++ make pkg-config curl tar gzip fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
     steps:
       - name: packages
         run: ${{ matrix.install }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: rust
+        shell: bash
         run: |
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: build
+        shell: bash
         run: cargo build --profile ci --locked
       - name: test
+        shell: bash
         run: cargo test --profile ci --locked -p gyotaku-core -p gyotaku-ocr -p gyotaku
       - name: read a screenshot
+        shell: bash
         run: |
           ./target/ci/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
           grep -q "cores per screenshot" ocr.txt
