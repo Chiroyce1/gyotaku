@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
-pub use config::{Config, ThemeChoice, pictures_dir, tidy};
+pub use config::{Config, ThemeChoice, default_threads, pictures_dir, tidy, too_broad};
 pub use index::{Hit, Index};
 
 /// A box in normalized image coordinates, so the same numbers work on a

@@ -30,9 +30,23 @@ impl Default for Config {
         Self {
             folders: pictures_dir().into_iter().collect(),
             theme: ThemeChoice::System,
-            threads: 4,
+            threads: default_threads(),
         }
     }
+}
+
+/// Reading a screenshot stops getting much faster past 4 cores, and on a
+/// dual core laptop 4 would just fight over 2.
+pub fn default_threads() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get().min(4))
+}
+
+/// Folders gyotaku won't take: the whole home folder or the whole disk.
+/// Reading those means every image anyone ever saved, hundreds of thousands
+/// of files, and more inotify watches than a default system allows.
+pub fn too_broad(folder: &Path) -> bool {
+    let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf());
+    folder.parent().is_none() || home.as_deref() == Some(folder)
 }
 
 impl Config {
@@ -135,6 +149,23 @@ mod tests {
         assert_eq!(config.theme, ThemeChoice::Light);
         assert_eq!(config.threads, 4);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn home_and_root_are_too_broad() {
+        let home = directories::BaseDirs::new()
+            .unwrap()
+            .home_dir()
+            .to_path_buf();
+        assert!(too_broad(&home));
+        assert!(too_broad(Path::new("/")));
+        assert!(!too_broad(&home.join("Pictures")));
+    }
+
+    #[test]
+    fn default_threads_fit_the_machine() {
+        let cores = std::thread::available_parallelism().unwrap().get();
+        assert!(default_threads() >= 1 && default_threads() <= cores.min(4));
     }
 
     #[test]

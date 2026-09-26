@@ -5,7 +5,9 @@ Documentation=https://github.com/xevrion/gyotaku
 [Service]
 ExecStart=%h/.cargo/bin/gyotaku watch
 Restart=on-failure
-RestartSec=5
+# Slow enough that a laptop that's offline on first run (the models can't
+# download yet) isn't hammered with restarts.
+RestartSec=30
 # gyotaku watch already drops itself to idle priority, this just makes sure
 # systemd agrees, and caps it if a monster image ever sneaks in.
 Nice=19
