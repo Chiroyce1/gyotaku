@@ -72,6 +72,9 @@ pub struct Gyotaku {
     input: Entity<TextInput>,
     query: String,
     hits: Vec<Hit>,
+    /// The lines each hit matched on, looked up the first time its tile is
+    /// drawn rather than for every hit up front.
+    matched: HashMap<i64, Rc<Vec<Line>>>,
     thumb_paths: Vec<PathBuf>,
     thumbs: Images,
     full: Images,
@@ -130,6 +133,7 @@ impl Gyotaku {
             input,
             query: String::new(),
             hits: Vec::new(),
+            matched: HashMap::new(),
             thumb_paths: Vec::new(),
             thumbs: Images::new(THUMB_CACHE, THUMB_MAX_SIDE),
             full: Images::new(FULL_CACHE, FULL_MAX_SIDE),
@@ -158,7 +162,8 @@ impl Gyotaku {
         } else {
             SEARCH_LIMIT
         };
-        self.hits = self.index.search(&query, limit).unwrap_or_default();
+        self.hits = self.index.find(&query, limit).unwrap_or_default();
+        self.matched.clear();
         self.thumb_paths = self
             .hits
             .iter()
@@ -211,6 +216,20 @@ impl Gyotaku {
         })
         .detach();
         None
+    }
+
+    fn matched_lines(&mut self, item: usize) -> Rc<Vec<Line>> {
+        let Some(hit) = self.hits.get(item) else {
+            return Rc::default();
+        };
+        if !self.searching() {
+            return Rc::default();
+        }
+        let (index, query) = (&self.index, &self.query);
+        self.matched
+            .entry(hit.id)
+            .or_insert_with(|| Rc::new(index.matching_lines(hit.id, query).unwrap_or_default()))
+            .clone()
     }
 
     fn corner(&self) -> Pixels {
@@ -391,11 +410,12 @@ impl Gyotaku {
 
     /// Opens the full view of a shot, or switches to it if one is already open.
     fn show(&mut self, item: usize, cx: &mut Context<Self>) {
-        let Some(hit) = self.hits.get(item) else {
+        let Some(id) = self.hits.get(item).map(|h| h.id) else {
             return;
         };
-        let lines = self.index.lines(hit.id).unwrap_or_default();
-        let matched = lines.iter().map(|l| hit.lines.contains(l)).collect();
+        let hits_here = self.matched_lines(item);
+        let lines = self.index.lines(id).unwrap_or_default();
+        let matched = lines.iter().map(|l| hits_here.contains(l)).collect();
         self.selected = item;
 
         if let Some(d) = &mut self.detail {
@@ -530,6 +550,7 @@ impl Gyotaku {
         let theme = *cx.global::<Theme>();
         let path = self.thumb_paths[i].clone();
         let thumb = self.image(&path, false, window, cx);
+        let lines = self.matched_lines(i);
         let hit = &self.hits[i];
         let crop = gyotaku_core::tile_crop(hit.width, hit.height);
         let sink = self.tile_bounds.clone();
@@ -552,7 +573,7 @@ impl Gyotaku {
         // The ink press: the whole print darkens and only the words that
         // matched stay lit, each one a window cut through the veil back to
         // the thumbnail underneath.
-        if let Some(thumb) = thumb.filter(|_| self.searching() && !hit.lines.is_empty()) {
+        if let Some(thumb) = thumb.filter(|_| !lines.is_empty()) {
             tile = tile.child(
                 div()
                     .absolute()
@@ -560,7 +581,7 @@ impl Gyotaku {
                     .rounded(px(RADIUS))
                     .bg(theme.veil),
             );
-            for (j, line) in hit.lines.iter().enumerate() {
+            for (j, line) in lines.iter().enumerate() {
                 let Some(b) = in_tile(line.rect, crop, w, h) else {
                     continue;
                 };

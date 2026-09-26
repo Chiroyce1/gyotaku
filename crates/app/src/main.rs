@@ -74,7 +74,7 @@ fn main() -> Result<()> {
             });
             cx.spawn(async move |cx| {
                 while knocked.next().await.is_some() {
-                    let _ = cx.update(|cx| toggle(windowed, cx));
+                    cx.update(|cx| toggle(windowed, cx));
                 }
             })
             .detach();

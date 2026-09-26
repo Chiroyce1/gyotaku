@@ -23,7 +23,13 @@ pub struct Theme {
 impl Global for Theme {}
 
 impl Theme {
+    /// Follows the system, unless GYOTAKU_THEME says light or dark.
     pub fn for_appearance(appearance: WindowAppearance) -> Self {
+        match std::env::var("GYOTAKU_THEME").as_deref() {
+            Ok("light") => return Self::light(),
+            Ok("dark") => return Self::dark(),
+            _ => {}
+        }
         match appearance {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
             WindowAppearance::Light | WindowAppearance::VibrantLight => Self::light(),
