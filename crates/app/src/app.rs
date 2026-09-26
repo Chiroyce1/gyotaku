@@ -55,6 +55,9 @@ const DETAIL_TOP: f32 = 56.0;
 const DETAIL_BOTTOM: f32 = 52.0;
 const DETAIL_PAD: f32 = 20.0;
 
+const TOAST_SHOWN: Duration = Duration::from_millis(1400);
+const TOAST_FADE: Duration = Duration::from_millis(150);
+
 const BROWSE_LIMIT: usize = 20_000;
 const SEARCH_LIMIT: usize = 2_000;
 
@@ -91,11 +94,17 @@ pub struct Gyotaku {
     tile_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
 
     detail: Option<Detail>,
-    toast: Option<(SharedString, usize)>,
+    toast: Option<Toast>,
     toasts: usize,
     last_frame: Instant,
     /// Drawn as a floating panel (layer shell) rather than filling a window.
     floating: bool,
+}
+
+struct Toast {
+    message: SharedString,
+    id: usize,
+    leaving: bool,
 }
 
 struct Detail {
@@ -104,6 +113,8 @@ struct Detail {
     matched: Vec<bool>,
     /// 0 is the tile in the grid, 1 is the full view.
     open: Spring,
+    /// Whether it moves out of the tile, or just fades in place.
+    grow: bool,
     from: Bounds<Pixels>,
     image_rect: Bounds<Pixels>,
     hovered: Option<usize>,
@@ -430,13 +441,17 @@ impl Gyotaku {
             let from = tile.unwrap_or_else(|| {
                 Bounds::centered_at(point(px(400.), px(300.)), size(px(80.), px(60.)))
             });
-            let mut open = Spring::new(0.0, 0.38, 1.0);
+            // With reduced motion the shot doesn't fly out of its tile, it
+            // fades in where it's going to be.
+            let grow = !cx.reduce_motion();
+            let mut open = Spring::new(0.0, if grow { 0.38 } else { 0.2 }, 1.0);
             open.set_target(1.0);
             self.detail = Some(Detail {
                 hit: item,
                 lines,
                 matched,
                 open,
+                grow,
                 from,
                 image_rect: from,
                 hovered: None,
@@ -451,17 +466,29 @@ impl Gyotaku {
     fn flash(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.toasts += 1;
         let id = self.toasts;
-        self.toast = Some((message.into(), id));
+        self.toast = Some(Toast {
+            message: message.into(),
+            id,
+            leaving: false,
+        });
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(1600))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.toast.as_ref().is_some_and(|(_, t)| *t == id) {
-                    this.toast = None;
+            // Shown, then faded out, then gone. A newer toast takes over and
+            // this one's timers do nothing.
+            for leaving in [true, false] {
+                let wait = if leaving { TOAST_SHOWN } else { TOAST_FADE };
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |this, cx| {
+                    let Some(toast) = this.toast.as_mut().filter(|t| t.id == id) else {
+                        return;
+                    };
+                    if leaving {
+                        toast.leaving = true;
+                    } else {
+                        this.toast = None;
+                    }
                     cx.notify();
-                }
-            });
+                });
+            }
         })
         .detach();
         cx.notify();
@@ -603,23 +630,28 @@ impl Gyotaku {
                             .w(px(w))
                             .h(px(h)),
                     );
-                let id = ElementId::Name(format!("press-{}-{i}-{j}", self.generation).into());
-                tile = tile.child(lit.with_animation(
-                    id,
-                    Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()),
-                    |el, t| el.opacity(t),
-                ));
+                // This replays on every keystroke, so it stays short: typing
+                // is the most frequent thing anyone does here.
+                if cx.reduce_motion() {
+                    tile = tile.child(lit);
+                } else {
+                    let id = ElementId::Name(format!("press-{}-{i}-{j}", self.generation).into());
+                    tile = tile.child(lit.with_animation(
+                        id,
+                        Animation::new(Duration::from_millis(150)).with_easing(ease_out_quint()),
+                        |el, t| el.opacity(t),
+                    ));
+                }
             }
         }
 
-        // An inner hairline gives light thumbnails an edge against the panel.
         tile = tile.child(
             div()
                 .absolute()
                 .size_full()
                 .rounded(px(RADIUS))
                 .border_1()
-                .border_color(theme.hairline),
+                .border_color(theme.image_edge),
         );
 
         if i == self.selected {
@@ -763,7 +795,11 @@ impl Gyotaku {
             ),
             size(d.from.size.width / crop.w, d.from.size.height / crop.h),
         );
-        let rect = lerp_bounds(from, target, p);
+        let (rect, fade) = if d.grow {
+            (lerp_bounds(from, target, p), 1.0)
+        } else {
+            (target, p.clamp(0.0, 1.0))
+        };
         d.image_rect = rect;
         let chrome = ((p - 0.55) / 0.45).clamp(0.0, 1.0);
 
@@ -861,6 +897,7 @@ impl Gyotaku {
                         .w(thumb_rect.size.width)
                         .h(thumb_rect.size.height)
                         .rounded(radius)
+                        .opacity(fade)
                 }))
                 .children(full.map(|f| {
                     img(f)
@@ -870,6 +907,7 @@ impl Gyotaku {
                         .w(rect.size.width)
                         .h(rect.size.height)
                         .rounded(radius)
+                        .opacity(fade)
                 }))
                 .children(boxes)
                 .children(drag)
@@ -916,7 +954,11 @@ impl Gyotaku {
     }
 
     fn render_toast(&self, theme: Theme) -> Option<impl IntoElement + use<>> {
-        let (message, id) = self.toast.clone()?;
+        let toast = self.toast.as_ref()?;
+        let (id, leaving) = (toast.id, toast.leaving);
+        // The fade out has its own id so it starts fresh instead of carrying
+        // on from where the fade in ended.
+        let phase = if leaving { "out" } else { "in" };
         Some(
             div()
                 .absolute()
@@ -933,12 +975,11 @@ impl Gyotaku {
                         .bg(theme.text)
                         .text_color(theme.panel)
                         .text_sm()
-                        .child(message)
+                        .child(toast.message.clone())
                         .with_animation(
-                            ElementId::Name(format!("toast-{id}").into()),
-                            Animation::new(Duration::from_millis(160))
-                                .with_easing(ease_out_quint()),
-                            |el, t| el.opacity(t),
+                            ElementId::Name(format!("toast-{id}-{phase}").into()),
+                            Animation::new(TOAST_FADE).with_easing(ease_out_quint()),
+                            move |el, t| el.opacity(if leaving { 1.0 - t } else { t }),
                         ),
                 ),
         )

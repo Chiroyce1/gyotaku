@@ -12,6 +12,9 @@ pub struct Theme {
     pub muted: Hsla,
     pub faint: Hsla,
     pub hairline: Hsla,
+    /// The edge on every thumbnail. Pure black or white at 10%, never a
+    /// tinted grey, which picks up the panel and reads as dirt on the edge.
+    pub image_edge: Hsla,
     /// Laid over a thumbnail during a search so the found words can stay lit.
     pub veil: Hsla,
     pub accent: Hsla,
@@ -44,6 +47,7 @@ impl Theme {
             muted: rgb(0x6d6c68).into(),
             faint: rgb(0xa9a7a1).into(),
             hairline: rgba(0x1818_1a14).into(),
+            image_edge: rgba(0x0000_001a).into(),
             veil: rgba(0x1818_1a70).into(),
             accent: rgb(0xe0531f).into(),
             accent_wash: rgba(0xe053_1f2e).into(),
@@ -60,6 +64,7 @@ impl Theme {
             muted: rgb(0x9b9a95).into(),
             faint: rgb(0x5f5e5a).into(),
             hairline: rgba(0xffff_ff14).into(),
+            image_edge: rgba(0xffff_ff1a).into(),
             veil: rgba(0x0000_0080).into(),
             accent: rgb(0xff7438).into(),
             accent_wash: rgba(0xff74_3833).into(),
