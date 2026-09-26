@@ -55,8 +55,15 @@ const DETAIL_TOP: f32 = 56.0;
 const DETAIL_BOTTOM: f32 = 52.0;
 const DETAIL_PAD: f32 = 20.0;
 
+// Motion is kept short everywhere: this is summoned, used and dismissed in a
+// few seconds, dozens of times a day. Springs are in seconds of response,
+// critically damped, and closing is quicker than opening.
+const OPEN_RESPONSE: f32 = 0.26;
+const CLOSE_RESPONSE: f32 = 0.2;
+const FADE_RESPONSE: f32 = 0.14;
+const PRESS: Duration = Duration::from_millis(110);
 const TOAST_SHOWN: Duration = Duration::from_millis(1400);
-const TOAST_FADE: Duration = Duration::from_millis(150);
+const TOAST_FADE: Duration = Duration::from_millis(120);
 
 const BROWSE_LIMIT: usize = 20_000;
 const SEARCH_LIMIT: usize = 2_000;
@@ -286,6 +293,9 @@ impl Gyotaku {
 
     fn back(&mut self, _: &Back, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(d) = &mut self.detail {
+            if d.grow {
+                d.open.set_response(CLOSE_RESPONSE, 1.0);
+            }
             d.open.set_target(0.0);
             self.last_frame = Instant::now();
         } else if self.searching() {
@@ -435,6 +445,9 @@ impl Gyotaku {
             d.matched = matched;
             d.hovered = None;
             d.picked.clear();
+            if d.grow {
+                d.open.set_response(OPEN_RESPONSE, 1.0);
+            }
             d.open.set_target(1.0);
         } else {
             let tile = self.tile_bounds.borrow().get(&item).copied();
@@ -444,7 +457,7 @@ impl Gyotaku {
             // With reduced motion the shot doesn't fly out of its tile, it
             // fades in where it's going to be.
             let grow = !cx.reduce_motion();
-            let mut open = Spring::new(0.0, if grow { 0.38 } else { 0.2 }, 1.0);
+            let mut open = Spring::new(0.0, if grow { OPEN_RESPONSE } else { FADE_RESPONSE }, 1.0);
             open.set_target(1.0);
             self.detail = Some(Detail {
                 hit: item,
@@ -638,7 +651,7 @@ impl Gyotaku {
                     let id = ElementId::Name(format!("press-{}-{i}-{j}", self.generation).into());
                     tile = tile.child(lit.with_animation(
                         id,
-                        Animation::new(Duration::from_millis(150)).with_easing(ease_out_quint()),
+                        Animation::new(PRESS).with_easing(ease_out_quint()),
                         |el, t| el.opacity(t),
                     ));
                 }
@@ -806,7 +819,7 @@ impl Gyotaku {
             (target, p.clamp(0.0, 1.0))
         };
         d.image_rect = rect;
-        let chrome = ((p - 0.55) / 0.45).clamp(0.0, 1.0);
+        let chrome = ((p - 0.4) / 0.6).clamp(0.0, 1.0);
 
         let thumb_rect = Bounds::new(
             point(

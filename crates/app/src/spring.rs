@@ -41,6 +41,14 @@ impl Spring {
         self.target = target;
     }
 
+    /// Changes how quick it is without touching where it is or how fast it's
+    /// already moving, so going the other way can be snappier mid flight.
+    pub fn set_response(&mut self, response: f32, damping_ratio: f32) {
+        let omega = TAU / response;
+        self.stiffness = omega * omega;
+        self.damping = 2.0 * damping_ratio * omega;
+    }
+
     pub fn step(&mut self, dt: f32) {
         let mut left = dt.min(0.1);
         while left > 0.0 {
@@ -111,6 +119,19 @@ mod tests {
         // no jump back to where it started, it keeps drifting forward first
         assert!(s.value >= before - 0.02, "{before} -> {}", s.value);
         run(&mut s, 1.0);
+        assert_eq!(s.value, 0.0);
+    }
+
+    #[test]
+    fn retuning_keeps_position_and_speed() {
+        let mut s = Spring::new(0.0, 0.3, 1.0);
+        s.set_target(1.0);
+        run(&mut s, 0.08);
+        let (value, velocity) = (s.value, s.velocity);
+        s.set_response(0.2, 1.0);
+        assert_eq!((s.value, s.velocity), (value, velocity));
+        s.set_target(0.0);
+        run(&mut s, 0.5);
         assert_eq!(s.value, 0.0);
     }
 
