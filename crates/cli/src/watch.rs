@@ -143,9 +143,16 @@ impl Watch {
                     self.pending.insert(to.clone(), now);
                 }
             }
-            EventKind::Create(_)
-            | EventKind::Modify(_)
-            | EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
+            // The writer closed the file, so it's complete and there's nothing
+            // to wait for. Marking it as already settled gets a fresh
+            // screenshot read straight away instead of 400 ms later.
+            EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
+                let done = now.checked_sub(SETTLE).unwrap_or(now);
+                for path in images {
+                    self.pending.insert(path.clone(), done);
+                }
+            }
+            EventKind::Create(_) | EventKind::Modify(_) => {
                 for path in images {
                     self.pending.insert(path.clone(), now);
                 }
