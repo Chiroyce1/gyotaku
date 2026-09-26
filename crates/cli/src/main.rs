@@ -49,15 +49,9 @@ enum Command {
         /// Also print each line's box (x y w h, as fractions of the image) and score
         #[arg(long)]
         boxes: bool,
-        #[arg(long, default_value_t = default_threads())]
+        #[arg(long, default_value_t = gyotaku_core::default_threads())]
         threads: usize,
     },
-}
-
-// OCR on this model size stops getting much faster past 4 cores, and leaving
-// the rest free matters more for something meant to run in the background.
-fn default_threads() -> usize {
-    std::thread::available_parallelism().map_or(2, |n| n.get().min(4))
 }
 
 fn main() -> Result<()> {

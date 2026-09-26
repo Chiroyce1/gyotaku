@@ -60,6 +60,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
 
     let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders).into();
     let mut caught_up = backlog.is_empty();
+    let mut power = Power::default();
 
     loop {
         let mut config_changed = false;
@@ -73,7 +74,13 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         let wait = if !w.pending.is_empty() || !w.leaving.is_empty() {
             SETTLE
         } else if !backlog.is_empty() {
-            Duration::ZERO
+            // Working through an old library can wait, a laptop's battery
+            // matters more. Anything new still wakes this straight away.
+            if power.on_battery() {
+                BATTERY_PACE
+            } else {
+                Duration::ZERO
+            }
         } else {
             Duration::from_secs(3600)
         };
@@ -146,6 +153,41 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 w.indexer.index.visible_len()?
             );
         }
+    }
+}
+
+// On battery, one old screenshot every few seconds instead of flat out.
+const BATTERY_PACE: Duration = Duration::from_secs(3);
+
+/// Whether the machine is running on battery, looked up at most every 30
+/// seconds. Any laptop's kernel lists its batteries under
+/// /sys/class/power_supply, and one that says Discharging means unplugged.
+/// Desktops have none, so they're never throttled.
+#[derive(Default)]
+struct Power {
+    checked: Option<Instant>,
+    on_battery: bool,
+}
+
+impl Power {
+    fn on_battery(&mut self) -> bool {
+        if self
+            .checked
+            .is_none_or(|t| t.elapsed() > Duration::from_secs(30))
+        {
+            self.checked = Some(Instant::now());
+            self.on_battery = std::fs::read_dir("/sys/class/power_supply")
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|supply| {
+                    let read = |f: &str| {
+                        std::fs::read_to_string(supply.path().join(f)).unwrap_or_default()
+                    };
+                    read("type").trim() == "Battery" && read("status").trim() == "Discharging"
+                });
+        }
+        self.on_battery
     }
 }
 

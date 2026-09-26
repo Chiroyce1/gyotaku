@@ -85,7 +85,22 @@ fn session(model: &Path, threads: usize) -> Result<Session> {
 }
 
 pub fn load_image(path: &Path) -> Result<RgbImage> {
-    Ok(image::open(path)
-        .with_context(|| format!("decoding {}", path.display()))?
-        .into_rgb8())
+    let img = open_image(path).with_context(|| format!("decoding {}", path.display()))?;
+    Ok(img.into_rgb8())
+}
+
+/// Anything that would need more than this to decode is refused rather than
+/// loaded. 256 MB is a 64 megapixel image, far past any screen, and a stray
+/// panorama or giant scan shouldn't be able to push a small laptop into swap.
+const MAX_DECODE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Opens an image by what's in the file, not its extension (a `.png` that's
+/// really a jpeg still works), with a cap on how much memory decoding it may
+/// take.
+pub fn open_image(path: &Path) -> Result<image::DynamicImage> {
+    let mut reader = image::ImageReader::open(path)?.with_guessed_format()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    reader.limits(limits);
+    Ok(reader.decode()?)
 }
