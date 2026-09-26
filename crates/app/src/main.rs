@@ -5,6 +5,7 @@ mod input;
 mod resident;
 mod setup;
 mod spring;
+mod stats;
 mod theme;
 
 use std::borrow::Cow;
@@ -67,6 +68,17 @@ fn main() -> Result<()> {
             });
             toggle(cx);
 
+            // The view lives on for next time, but most of its thumbnails
+            // don't need to. Hand the freed pages back so an idle gyotaku
+            // stays small.
+            cx.on_window_closed(|cx, _| {
+                if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
+                    view.update(cx, |view, cx| view.hidden(cx));
+                }
+                release_memory();
+            })
+            .detach();
+
             let Some(listener) = listener else { return };
             let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
             std::thread::spawn(move || {
@@ -80,16 +92,6 @@ fn main() -> Result<()> {
                 while knocked.next().await.is_some() {
                     cx.update(toggle);
                 }
-            })
-            .detach();
-            // The view lives on for next time, but most of its thumbnails
-            // don't need to. Hand the freed pages back so an idle gyotaku
-            // stays small.
-            cx.on_window_closed(|cx, _| {
-                if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
-                    view.update(cx, |view, cx| view.hidden(cx));
-                }
-                release_memory();
             })
             .detach();
         });

@@ -23,6 +23,7 @@ use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
 use crate::input::{Changed, TextInput};
 use crate::spring::Spring;
+use crate::stats::FrameStats;
 use crate::theme::Theme;
 use settings::{Key, Onboarding, Settings};
 
@@ -69,6 +70,7 @@ const CLOSE_RESPONSE: f32 = 0.2;
 const FADE_RESPONSE: f32 = 0.14;
 const PRESS: Duration = Duration::from_millis(110);
 const THUMBS_KEPT_HIDDEN: usize = 40;
+const REPAINT_BATCH: Duration = Duration::from_millis(20);
 const TOAST_SHOWN: Duration = Duration::from_millis(1400);
 const TOAST_FADE: Duration = Duration::from_millis(120);
 
@@ -125,6 +127,10 @@ pub struct Gyotaku {
     theme_choice: ThemeChoice,
     /// Whether a window is showing this right now.
     visible: bool,
+    stats: FrameStats,
+    /// Drawing on the cpu (no usable gpu), see `calm`.
+    software: bool,
+    repaint_pending: bool,
 }
 
 enum Page {
@@ -211,6 +217,9 @@ impl Gyotaku {
             panel_focus: cx.focus_handle(),
             theme_choice: config.theme,
             visible: true,
+            stats: FrameStats::new(),
+            software: false,
+            repaint_pending: false,
         };
         // No config means onboarding was never finished.
         if !set_up {
@@ -232,6 +241,35 @@ impl Gyotaku {
         self.tile_bounds.borrow_mut().clear();
         self.last_frame = Instant::now();
         self.visible = true;
+        self.software = window.gpu_specs().is_some_and(|g| g.is_software_emulated);
+    }
+
+    /// Thumbnails finish decoding one at a time, a page of them within a few
+    /// dozen milliseconds. Repainting for each one is 30 frames where two
+    /// would do, which costs nothing on a gpu and a lot without one. So
+    /// finished images wait up to one repaint interval and go in together.
+    fn repaint_soon(&mut self, cx: &mut Context<Self>) {
+        if self.repaint_pending {
+            return;
+        }
+        self.repaint_pending = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(REPAINT_BATCH).await;
+            let _ = this.update(cx, |this, cx| {
+                this.repaint_pending = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Whether to skip decorative motion: when the system asks for reduced
+    /// motion, and when there's no gpu. Drawn in software every animated
+    /// frame is real cpu work (a 1180x780 frame is ~27 ms of llvmpipe on a
+    /// fast laptop, more on the kind that has no gpu), so a short fade
+    /// instead of a flying tile is both smoother and kinder to the battery.
+    fn calm(&self, cx: &App) -> bool {
+        self.software || cx.reduce_motion()
     }
 
     fn tick(&mut self, cx: &mut Context<Self>) {
@@ -272,6 +310,7 @@ impl Gyotaku {
     /// and let the rest go.
     pub fn hidden(&mut self, cx: &mut Context<Self>) {
         self.visible = false;
+        self.stats.report();
         self.thumbs.shrink_to(THUMBS_KEPT_HIDDEN, cx);
         self.full.shrink_to(1, cx);
     }
@@ -366,7 +405,7 @@ impl Gyotaku {
                     &mut this.thumbs
                 };
                 store.finish(&path, image);
-                cx.notify();
+                this.repaint_soon(cx);
             });
         })
         .detach();
@@ -442,7 +481,11 @@ impl Gyotaku {
         if self.on_panel() {
             return self.panel_back(window, cx);
         }
-        if let Some(d) = &mut self.detail {
+        // A shot already on its way closed doesn't eat a second escape, that
+        // one goes to the next step. Pressing escape twice quickly should do
+        // two things, not one, whatever speed the machine animates at.
+        let closing = self.detail.as_ref().is_some_and(|d| d.open.target() == 0.0);
+        if let Some(d) = self.detail.as_mut().filter(|_| !closing) {
             if d.grow {
                 d.open.set_response(CLOSE_RESPONSE, 1.0);
             }
@@ -647,7 +690,7 @@ impl Gyotaku {
             });
             // With reduced motion the shot doesn't fly out of its tile, it
             // fades in where it's going to be.
-            let grow = !cx.reduce_motion();
+            let grow = !self.calm(cx);
             let mut open = Spring::new(0.0, if grow { OPEN_RESPONSE } else { FADE_RESPONSE }, 1.0);
             open.set_target(1.0);
             self.detail = Some(Detail {
@@ -837,7 +880,7 @@ impl Gyotaku {
                     );
                 // This replays on every keystroke, so it stays short: typing
                 // is the most frequent thing anyone does here.
-                if cx.reduce_motion() {
+                if self.calm(cx) {
                     tile = tile.child(lit);
                 } else {
                     let id = ElementId::Name(format!("press-{}-{i}-{j}", self.generation).into());
@@ -1217,13 +1260,15 @@ impl Focusable for Gyotaku {
 
 impl Render for Gyotaku {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let started = self.stats.begin();
         let theme = *cx.global::<Theme>();
 
+        // The real time since the last frame, so motion takes as long on a
+        // slow machine as on a fast one (it just gets fewer frames). Capping
+        // this at a 30 fps step made a 0.2 s fade last seconds where frames
+        // take 150 ms. The spring sub-steps big gaps itself.
         let now = Instant::now();
-        let dt = now
-            .duration_since(self.last_frame)
-            .as_secs_f32()
-            .min(1.0 / 30.0);
+        let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.25);
         self.last_frame = now;
         if let Some(d) = &mut self.detail {
             if !d.open.is_settled() {
@@ -1273,7 +1318,7 @@ impl Render for Gyotaku {
                 .children(content.drain(..))
         });
 
-        div()
+        let root = div()
             .key_context("Gyotaku")
             .on_action(cx.listener(Self::back))
             .on_action(cx.listener(Self::open))
@@ -1303,7 +1348,9 @@ impl Render for Gyotaku {
             .font_family("IBM Plex Sans")
             .children(panel)
             .children(content)
-            .children(toast)
+            .children(toast);
+        self.stats.end(started);
+        root
     }
 }
 

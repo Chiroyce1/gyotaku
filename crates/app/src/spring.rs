@@ -50,7 +50,10 @@ impl Spring {
     }
 
     pub fn step(&mut self, dt: f32) {
-        let mut left = dt.min(0.1);
+        // Up to a quarter second per frame is taken at face value, so a slow
+        // machine animates in the same time with fewer frames. Beyond that
+        // (a stall, a suspend) it just picks up where it was.
+        let mut left = dt.min(0.25);
         while left > 0.0 {
             let h = left.min(STEP);
             let force = -self.stiffness * (self.value - self.target) - self.damping * self.velocity;
@@ -133,6 +136,19 @@ mod tests {
         s.set_target(0.0);
         run(&mut s, 0.5);
         assert_eq!(s.value, 0.0);
+    }
+
+    #[test]
+    fn slow_frames_take_the_same_time_not_longer() {
+        // 150 ms frames, the kind software rendering on two cores gives
+        let mut s = Spring::new(0.0, 0.2, 1.0);
+        s.set_target(1.0);
+        let mut t = 0.0;
+        while !s.is_settled() && t < 5.0 {
+            s.step(0.15);
+            t += 0.15;
+        }
+        assert!(t <= 0.6, "settled after {t}s");
     }
 
     #[test]
