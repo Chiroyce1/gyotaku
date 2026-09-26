@@ -170,12 +170,19 @@ Use lowercase after the type and omit the trailing period.
 
 For first-time contributors, workflows require maintainer approval before they run. This is a GitHub policy for pull requests from forks. After the first merged pull request, they run automatically.
 
-| Check | Description |
-|---|---|
-| `fmt, clippy, tests` | Formatting, lints and tests on Ubuntu 24.04 |
-| Distribution builds | Clean builds on Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE, each followed by OCR of a real screenshot |
-| `CodeQL` | Static security analysis of the Rust code and the workflows |
-| `semantic` | Pull request title format |
+Jobs run only when the change requires them:
+
+| Check | Description | Runs when |
+|---|---|---|
+| `fmt, clippy, tests` | Formatting, lints and tests on Ubuntu 24.04 | Rust code, tests, manifests or CI configuration change |
+| Distribution builds | Clean builds on Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE, each followed by OCR of a real screenshot | Dependencies (`Cargo.toml`, `Cargo.lock`), the toolchain or CI configuration change; weekly; on manual dispatch |
+| `ci result` | Summary of the jobs above. Skipped jobs count as passing. | Always |
+| `CodeQL` | Static security analysis of the Rust code and the workflows | Rust code or workflows change; weekly |
+| `semantic` | Pull request title format | Every pull request |
+
+`ci result` and `semantic` are required for merging. A documentation-only change runs neither build.
+
+Maintainers can trigger the distribution builds manually from the [Actions tab](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) (Run workflow), for example before a release.
 
 When addressing review feedback, push additional commits rather than force-pushing. The squash merge combines them, and separate commits let reviewers see what changed.
 

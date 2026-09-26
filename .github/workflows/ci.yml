@@ -1,8 +1,16 @@
 name: ci
 
 on:
+  # main only. Every other branch is checked through its pull request, so
+  # listening to all pushes ran dependabot's branches twice.
   push:
+    branches: [main]
   pull_request:
+  # Rolling images (arch, tumbleweed, kali) can break the build with nothing
+  # changing here, so the distro builds also run once a week regardless.
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,9 +25,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides what the rest has to do. A docs change needs nothing, a code
+  # change needs the quick check, and only a change to dependencies, the
+  # toolchain or this file can break a distro build that passed before, so
+  # only those pay for the six containers (about an hour of runner time).
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      build: ${{ steps.diff.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          # Scheduled and manual runs check everything, and so does a push
+          # whose base can't be found, rather than guess.
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$files"
+          code=false
+          build=false
+          # Here-strings, not pipes: with pipefail, grep -q exiting early can
+          # SIGPIPE the echo and turn a match into a failure.
+          if grep -qE '^(crates/|tests/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|rustfmt\.toml$|\.github/workflows/ci\.yml$)' <<< "$files"; then
+            code=true
+          fi
+          if grep -qE '(^|/)(Cargo\.toml|build\.rs)$|^Cargo\.lock$|^rust-toolchain\.toml$|^\.github/workflows/ci\.yml$' <<< "$files"; then
+            build=true
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   check:
     name: fmt, clippy, tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,10 +93,14 @@ jobs:
   # Builds from a clean checkout inside each distro's own image, with only
   # the packages the README tells people to install, then reads a real
   # screenshot. If a distro needs something the README doesn't say, this is
-  # where it shows up.
+  # where it shows up. It waits for the quick check, so a formatting slip
+  # doesn't cost an hour of containers.
   distro:
     name: ${{ matrix.name }}
+    needs: [changes, check]
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
@@ -91,3 +150,25 @@ jobs:
         run: |
           ./target/ci/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
           grep -q "cores per screenshot" ocr.txt
+
+  # The one check branch protection requires. A job skipped by its `if`
+  # reports under its unexpanded name, so requiring the distro jobs directly
+  # would leave a docs-only pull request waiting forever. This passes when
+  # everything that ran passed, and treats skipped as fine.
+  result:
+    name: ci result
+    if: always()
+    needs: [changes, check, distro]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) exit 1 ;;
+            esac
+          done

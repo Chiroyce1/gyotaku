@@ -1,10 +1,23 @@
 name: CodeQL
 
+# Only when there's something to analyze: the rust code, or the workflows.
+# A docs change can't introduce a finding. This check isn't required by
+# branch protection, so filtering at the trigger can't block a merge.
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
   # A weekly run catches new queries landing in CodeQL itself, not just new code.
   schedule:
     - cron: '31 4 * * 1'

@@ -31,7 +31,7 @@ When software rendering is detected, animated transitions are replaced with shor
 
 | Distribution | Notes | Status |
 |---|---|---|
-| Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora, openSUSE Tumbleweed | Built and tested from a clean image on every commit | Verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) |
+| Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora, openSUSE Tumbleweed | Built and tested from a clean image weekly and on every dependency or toolchain change | Verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) |
 | Older glibc-based distributions | ONNX Runtime requires glibc 2.27 (Ubuntu 18.04, Debian 10 or newer) | Not yet verified |
 | systemd | Background indexing as a user service | Verified |
 | Non-systemd (Void, Artix and others) | Background indexing through an XDG autostart entry | Not yet verified |

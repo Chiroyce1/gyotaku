@@ -42,7 +42,7 @@ It also runs without a GPU, using software rendering. All figures were measured 
 
 gyotaku currently supports Linux on x86_64. 64-bit ARM is expected to work but has not been tested. It is built from source.
 
-Steps 1 to 3 are verified from a clean image of Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE Tumbleweed on every commit ([CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml)).
+Steps 1 to 3 are verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) from a clean image of Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE Tumbleweed, weekly and whenever dependencies or the toolchain change.
 
 ### 1. Install build dependencies
 
