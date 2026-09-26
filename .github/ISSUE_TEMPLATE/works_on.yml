@@ -1,0 +1,67 @@
+name: It works (or doesn't) on my setup
+description: Tell us how gyotaku ran on hardware or a desktop nobody has tried yet
+labels: ['compatibility']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Several setups are still marked "not yet" in
+        [compatibility](https://github.com/xevrion/gyotaku/blob/main/docs/compatibility.md),
+        like GNOME, KDE, integrated gpus, ARM and distros without systemd.
+        A report that it simply works is just as useful as a bug.
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: How did it go
+      options:
+        - Everything worked
+        - Mostly worked, some problems
+        - Didn't work
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distro
+      placeholder: Linux Mint 22
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop, and wayland or X11
+      description: '`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE` prints both.'
+      placeholder: KDE wayland
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: CPU and GPU
+      placeholder: Ryzen 5 5500U, integrated Radeon
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: What you tried
+      options:
+        - label: The build from the README
+        - label: The key opens and closes the window
+        - label: Onboarding found my screenshot folder
+        - label: Background reading picks up a new screenshot
+        - label: Copying text and images
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: |
+        Anything that went wrong or felt slow. If you ran `GYOTAKU_FRAME_STATS=1 gyotaku-app --once`,
+        paste what it printed when the window closed.
+      render: text

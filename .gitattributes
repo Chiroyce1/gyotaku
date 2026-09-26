@@ -1,0 +1,16 @@
+# Normalise line endings so a Windows checkout doesn't produce a diff in every
+# file, and rustfmt's check doesn't fail on CRLF.
+* text=auto eol=lf
+
+# Binary, never diffed or line-ending normalised.
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+
+# The font licence ships with CRLF, and a licence file stays exactly as its
+# authors wrote it.
+crates/app/fonts/OFL.txt -text
+
+# Generated. Collapsed in pull request diffs and excluded from language stats.
+Cargo.lock linguist-generated=true -diff

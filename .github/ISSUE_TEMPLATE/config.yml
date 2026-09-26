@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Something isn't working
+    url: https://github.com/xevrion/gyotaku/blob/main/docs/troubleshooting.md
+    about: The common problems and their fixes, worth a look before filing.
+  - name: Report a security problem
+    url: https://github.com/xevrion/gyotaku/security/policy
+    about: Please report vulnerabilities privately rather than in a public issue.

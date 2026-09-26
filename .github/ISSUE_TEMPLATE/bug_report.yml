@@ -1,0 +1,68 @@
+name: Bug report
+description: Something doesn't work, crashes, or reads a screenshot wrong
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before filing, [troubleshooting](https://github.com/xevrion/gyotaku/blob/main/docs/troubleshooting.md)
+        covers the common problems, and it might already have your fix.
+
+        Please don't attach screenshots with private information in them. If a
+        screenshot isn't found, a similar one without anything private is
+        just as useful.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distro
+      placeholder: Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop, and wayland or X11
+      description: '`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE` prints both.'
+      placeholder: GNOME wayland
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      description: Dedicated, integrated, or none. The model helps if you know it.
+      placeholder: Intel UHD 620, integrated
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: '`git rev-parse --short HEAD` inside your gyotaku folder.'
+      placeholder: 0fec41e
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: |
+        For a problem with the window, what `RUST_LOG=warn gyotaku-app --once` prints.
+        For a problem with reading screenshots, `journalctl --user -u gyotaku-watch -e`.
+        For a screenshot that isn't found, `gyotaku ocr path/to/shot.png`.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: A screenshot or recording of the window helps a lot for anything visual.
