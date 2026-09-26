@@ -44,7 +44,7 @@ gyotaku indexes every screenshot by its OCR'd text so it can be searched. `crate
 
 ## Copy
 
-- Casual and plain, lowercase in the README and docs, like the existing text.
+- README and docs are written in clear, neutral, professional English, with sentence case headings. No first person.
 - No em dashes and no unicode arrows anywhere: code, comments, commits, docs.
 
 ## Commands

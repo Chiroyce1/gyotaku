@@ -1,24 +1,49 @@
 # Contributing to gyotaku
 
-Thanks for taking the time. gyotaku is meant to be the screenshot search you install once and forget about, so the bar for a change is not only "does it work" but "does it stay fast, small, and safe on someone else's machine".
+Thank you for your interest in contributing. gyotaku runs continuously in the background on users' machines, so every change is evaluated not only on whether it works, but on whether it remains fast, resource-efficient and safe on hardware the author has never seen.
 
-Don't worry if you get any of the process below wrong, or if you haven't contributed to a project before. Say so and we'll help.
+First-time contributors are welcome. If you are unsure about any part of this process, say so in your issue or pull request and a maintainer will help.
+
+## Table of contents
+
+- [Before you start](#before-you-start)
+- [Development setup](#development-setup)
+- [Project structure](#project-structure)
+- [Engineering standards](#engineering-standards)
+- [Documentation style](#documentation-style)
+- [Design guidelines](#design-guidelines)
+- [Pull requests](#pull-requests)
+- [Reporting bugs](#reporting-bugs)
+- [Code of conduct](#code-of-conduct)
 
 ## Before you start
 
-**Found something small and obvious?** Send the pull request. No ceremony needed.
+- **Small, self-evident fixes** (typos, obvious bugs) can be submitted directly as a pull request.
+- **New features, OCR changes, or changes to the index format** should start with an issue describing the proposed approach, so that design questions are settled before implementation.
+- **Existing issues:** comment on the issue before starting work to avoid duplicated effort. You do not need to wait for a reply.
+- **Finding something to work on:** issues labeled [`good first issue`](https://github.com/xevrion/gyotaku/labels/good%20first%20issue) and [`help wanted`](https://github.com/xevrion/gyotaku/labels/help%20wanted) are open for contribution. Planned ideas are listed under "to try later" in the [development log](notes.md#to-try-later). Testing on unverified configurations (see [Compatibility](docs/compatibility.md)) is equally valuable.
 
-**Want to add a feature, change the OCR, or touch the index format?** Open an issue first and describe the approach. It takes a few minutes and saves you writing something that then has to be rewritten.
+### Labels
 
-**Want to work on an existing issue?** Comment on it so two people don't build the same thing. You don't have to wait for a reply before starting.
+| Label | Meaning |
+|---|---|
+| `area:core`, `area:ocr`, `area:cli`, `area:app` | The crate an issue concerns |
+| `bug`, `enhancement`, `performance`, `ocr-accuracy` | The type of issue |
+| `compatibility` | Behavior on a specific distribution, desktop, GPU or CPU |
+| `triage`, `needs-repro` | Requires more information before work can begin |
+| `discussion` | The approach is not yet agreed; comment before implementing |
 
-**Not sure what to work on?** The ["to try later" list in notes.md](notes.md#to-try-later) has the ideas that are wanted but not started. Testing on hardware nobody has tried yet is just as useful: GNOME, KDE, integrated gpus, ARM, and distros without systemd are all marked "not yet" in [compatibility](docs/compatibility.md).
+## Development setup
 
-## Getting set up
+### Prerequisites
 
-You need the build tools from [step 1 of the install](README.md#1-the-build-tools), and rust from [rustup](https://rustup.rs). The repo pins the rust version in `rust-toolchain.toml`, so rustup fetches the right one the first time you build.
+- The build dependencies from [step 1 of the installation guide](README.md#1-install-build-dependencies).
+- Rust, installed with [rustup](https://rustup.rs). The version is pinned in `rust-toolchain.toml` and installed automatically on first build.
+- About 2 GB of free disk space. A debug build of the workspace occupies about 1.6 GB in `target/`, mostly GPUI and wgpu. Dependencies are compiled with optimizations and without debug info to keep this size bounded.
 
-Fork the repo on GitHub, then:
+### Getting the source
+
+Fork the repository on GitHub, then:
 
 ```sh
 git clone https://github.com/YOUR-USERNAME/gyotaku.git
@@ -27,110 +52,139 @@ git remote add upstream https://github.com/xevrion/gyotaku.git
 git checkout -b your-branch-name
 ```
 
-A debug build of the whole workspace takes about 1.6 GB of disk in `target/`, mostly gpui and wgpu. Dependencies are built optimised and without debug info on purpose: with full debug info that folder once reached 18 GB.
+### Common commands
 
-Useful commands:
-
-| Command | What it does |
+| Command | Description |
 |---|---|
 | `cargo run -p gyotaku-app -- --once` | Run the search window from source |
-| `cargo run -p gyotaku -- ocr some.png` | Read one image and print its text |
-| `cargo run -p gyotaku -- search word` | Search the index |
-| `cargo test --workspace` | Run the tests |
-| `cargo clippy --workspace -- -D warnings` | Lint, warnings are errors |
+| `cargo run -p gyotaku -- ocr <image>` | Extract and print the text of one image |
+| `cargo run -p gyotaku -- search <words>` | Query the index |
+| `cargo test --workspace` | Run all tests |
+| `cargo clippy --workspace -- -D warnings` | Lint; warnings are errors |
 | `cargo fmt --all` | Format |
 
-Always pass `--once` when running the window from source. Without it, if you also have gyotaku installed, the new process finds the installed one already running in the background, asks it to show its window, and exits, so you end up looking at the old code.
+Always pass `--once` when running the window from source. Without it, if an installed copy of gyotaku is resident, the new process signals the installed one to show its window and exits, and the code under development never runs.
 
-`RUST_LOG=warn` shows what gpui says about the window and the gpu. `GYOTAKU_FRAME_STATS=1` prints frame timings when the window closes. `GYOTAKU_THEME=light` or `dark` forces a theme.
+Useful environment variables during development:
 
-The first OCR run downloads the models and ONNX Runtime into `~/.local/share/gyotaku`, the same place an installed gyotaku uses, so it's shared.
+| Variable | Effect |
+|---|---|
+| `RUST_LOG=warn` | Show warnings from GPUI and the GPU layer |
+| `GYOTAKU_FRAME_STATS=1` | Print frame timing statistics when the window closes |
+| `GYOTAKU_THEME=light\|dark` | Force a theme |
 
-## How the project is laid out
+The first OCR run downloads the models and ONNX Runtime to `~/.local/share/gyotaku`. This location is shared with any installed copy.
 
+### Git hooks
+
+The repository provides optional git hooks that mirror CI. Enable them once per clone:
+
+```sh
+git config core.hooksPath .githooks
 ```
-crates/core   the index (sqlite, fts5 trigram), the config, thumbnail crop rules. no ui, no OCR
-crates/ocr    PP-OCRv6 on ONNX Runtime: detection, recognition, decoding, model download
-crates/cli    the `gyotaku` command: index, watch, search, stats, ocr
-crates/app    the search window, onboarding and settings, on gpui
-contrib/      a systemd user unit for people who set it up by hand
-tests/        fixtures, currently one real screenshot CI reads on every distro
-```
 
-`core` and `ocr` know nothing about the window, which is what lets the command line and CI exercise them on machines with no display.
+| Hook | Checks |
+|---|---|
+| `pre-commit` | `cargo fmt --check` |
+| `pre-push` | Formatting, `clippy -D warnings`, and the test suite, matching CI's `check` job |
 
-[docs/how-it-works.md](docs/how-it-works.md) explains the pieces and why they're built the way they are, and [notes.md](notes.md) is the build log, including the bugs that cost the most time. Read the relevant part of it before changing the image loading, the animation timing, or the OCR sizing: each of those has a trap that's already been fallen into once.
+The distribution builds run only in CI. A hook can be bypassed with `--no-verify`, but CI will still enforce the same checks.
 
-## Numbers must be measured
+## Project structure
 
-Every number in the README and the docs was measured on real hardware. Please keep it that way:
+| Path | Contents |
+|---|---|
+| `crates/core` | Index (SQLite FTS5, trigram tokenizer), configuration, thumbnail crop rules. No UI or OCR dependencies. |
+| `crates/ocr` | PP-OCRv6 on ONNX Runtime: detection, recognition, decoding, model download |
+| `crates/cli` | The `gyotaku` binary: `index`, `watch`, `search`, `stats`, `ocr` |
+| `crates/app` | The `gyotaku-app` binary: search window, onboarding and settings, built on GPUI |
+| `contrib/` | systemd user unit for manual installation |
+| `tests/fixtures/` | Test images; CI reads one on every supported distribution |
 
-- If your change affects speed or memory, include before and after numbers in the pull request, and say what machine they're from.
-- Never extrapolate a number to hardware you didn't run it on. "Not measured" is a fine thing to write.
-- If a change makes a documented number wrong, update it with a new measurement, or remove it.
+The [architecture overview](docs/architecture.md) explains how the components work and why. The [development log](notes.md) records measurements, rejected approaches and past bugs. Read the relevant section before changing image loading, animation timing, or OCR input sizing; each has a documented failure mode.
 
-## Safe on anyone's machine
+## Engineering standards
 
-gyotaku runs in the background on people's laptops, so:
+### Measured claims
 
-- Fail soft. A broken config, a missing gpu, no systemd, an old glibc, no network, or a 30,000 pixel wide image must never crash it or take the machine down with it.
-- Keep background work at idle priority, and keep memory bounded. Anything that scales with the size of someone's library needs a cap.
-- Never write to, move or delete a user's screenshots.
-- Nothing leaves the machine. The only network use is the one-time, checksum-verified download of the models and the runtime, and it should stay that way.
-- Keep it generic. No code path or piece of text should assume one desktop, distro, compositor or gpu vendor.
+Every figure in the README and documentation is measured on real hardware.
 
-## Writing
+- Changes that affect speed or memory must include before and after measurements in the pull request, along with the hardware they were taken on.
+- Do not extrapolate figures to hardware that was not tested. "Not measured" is an acceptable entry.
+- If a change invalidates a documented figure, re-measure it or remove it.
 
-Docs and UI text are casual and plain, the way the README reads.
+### Safety on user machines
 
-- Say what something does for the person reading, not which function moved.
-- No em dashes. Use a comma, a full stop, or a second sentence.
-- No unicode arrows. Write "then".
-- Code comments explain why, not what, and read like a person wrote them.
+- **Fail gracefully.** A missing GPU, missing systemd, no network, an older glibc, an invalid configuration file or an extremely large image must never crash the application or destabilize the system.
+- **Bound resource usage.** Background work runs at idle priority. Anything that scales with library size requires a limit.
+- **Never modify user files.** gyotaku must not write to, move or delete screenshots.
+- **No network access** beyond the one-time, checksum-verified download of the models and runtime.
+- **Remain platform-neutral.** No code path or user-facing text may assume a particular desktop environment, compositor, distribution or GPU vendor.
 
-## Design constraints
+### Code
 
-The window follows a few rules, so it keeps feeling like one thing:
+- Code must pass `cargo fmt` and `cargo clippy -- -D warnings`.
+- Comments explain intent and constraints (why), not mechanics (what).
+- Avoid allocation on hot paths such as frame rendering and per-keystroke search.
 
-- The screenshots are the colour. The chrome around them stays quiet: off white or near black, IBM Plex Sans.
-- One accent colour, shu (vermilion), and it only ever means "the search found this". Selection is always ink.
-- Nothing animates on its own. Motion only answers something the person did, and it has to be interruptible.
-- Without a gpu, motion becomes short fades. Every animated frame on the cpu costs battery.
-- Animation steps by real elapsed time, never a fixed step per frame, or it crawls on slow machines.
+## Documentation style
 
-For anything visible, include a screenshot or a short recording in the pull request.
+- Write in clear, neutral, professional English. Use sentence case for headings.
+- Describe behavior from the user's perspective.
+- Do not use em dashes or Unicode arrows.
+- Prefer tables for reference material and numbered steps for procedures.
+
+## Design guidelines
+
+- Screenshots provide the color. Interface chrome is neutral: off-white or near-black, set in IBM Plex Sans.
+- A single accent color (vermilion) is reserved for search matches. Selection uses the foreground color.
+- Motion occurs only in response to user input, and every animation is interruptible.
+- Under software rendering, animations are replaced by short fades.
+- Animations advance by elapsed time, never by a fixed step per frame.
+
+Include a screenshot or screen recording with any pull request that changes the interface.
 
 ## Pull requests
 
-- One logical change per pull request. If you find an unrelated bug, open an issue for it.
-- Say what the change does and why. If it changes behaviour, include before and after.
-- Before opening, run `cargo fmt --all`, `cargo clippy --workspace -- -D warnings` and `cargo test --workspace`.
+- Limit each pull request to one logical change. Report unrelated issues separately.
+- Describe what the change does and why. Include before and after behavior where relevant.
+- Before submitting, run `cargo fmt --all`, `cargo clippy --workspace -- -D warnings` and `cargo test --workspace`.
+- If the change adds a system package dependency, update both the installation steps in the README and `.github/workflows/ci.yml`.
 
-### The title
+### Title format
 
-Pull requests are squash-merged, so the title becomes the commit message on `main`, and a CI check enforces its shape. Start it with one of:
+Pull requests are squash-merged, so the title becomes the commit message on `main`. A CI check enforces the [Conventional Commits](https://www.conventionalcommits.org) format. Allowed types:
 
 `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-Scopes are optional: `fix: escape closes the window on the first press` and `fix(ocr): skip images under 16 px` are both fine. Lowercase after the prefix, no full stop at the end. `git log` shows the house style.
+Scopes are optional. Examples:
 
-### What happens after you open it
+```
+fix: close the window on the first Escape press
+fix(ocr): skip images smaller than 16 pixels
+```
 
-If it's your first pull request here, the checks wait until a maintainer approves them. That's GitHub's gate on pull requests from forks, not something you did wrong. After your first merged pull request they run automatically.
+Use lowercase after the type and omit the trailing period.
 
-The checks are:
+### Continuous integration
 
-- **fmt, clippy, tests** on Ubuntu 24.04.
-- **a clean build on six distros**: Ubuntu 22.04, Debian 12, Kali, Arch, Fedora and openSUSE, each from a fresh image with only the packages the README lists, then reading a real screenshot. If you add a system dependency, add it to the README's install step and to `.github/workflows/ci.yml` in the same pull request.
-- **CodeQL**, a security scan.
-- **semantic**, the pull request title.
+For first-time contributors, workflows require maintainer approval before they run. This is a GitHub policy for pull requests from forks. After the first merged pull request, they run automatically.
 
-If a review asks for changes, push follow-up commits instead of force-pushing. The squash-merge flattens them anyway, and it lets the reviewer see what changed since they last looked.
+| Check | Description |
+|---|---|
+| `fmt, clippy, tests` | Formatting, lints and tests on Ubuntu 24.04 |
+| Distribution builds | Clean builds on Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE, each followed by OCR of a real screenshot |
+| `CodeQL` | Static security analysis of the Rust code and the workflows |
+| `semantic` | Pull request title format |
+
+When addressing review feedback, push additional commits rather than force-pushing. The squash merge combines them, and separate commits let reviewers see what changed.
 
 ## Reporting bugs
 
-Use the bug report template. The most useful things are your distro, your desktop, whether you have a gpu, and what `gyotaku-app --once` prints when run from a terminal (add `RUST_LOG=warn` for more). If a screenshot isn't found, the output of `gyotaku ocr` on it helps a lot, and the screenshot itself even more, if it has nothing private in it.
+Use the [bug report template](https://github.com/xevrion/gyotaku/issues/new?template=bug_report.yml). Include the distribution, desktop environment, GPU, and the output of `RUST_LOG=warn gyotaku-app --once`. For recognition problems, include the output of `gyotaku ocr` for the affected image, and the image itself if it contains no private information.
+
+Report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Code of conduct
 
-By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it.

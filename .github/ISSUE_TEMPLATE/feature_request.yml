@@ -1,24 +1,25 @@
 name: Feature request
-description: Suggest something gyotaku should do
+description: Propose a new feature or an improvement
 labels: ['enhancement']
 body:
   - type: textarea
     id: problem
     attributes:
-      label: What you're trying to do
+      label: Problem
       description: |
-        What you wanted to find or do, and where gyotaku got in the way.
-        A real example beats a general description.
+        The task you were trying to accomplish and where gyotaku fell short.
+        A concrete example is more useful than a general description.
     validations:
       required: true
 
   - type: textarea
     id: idea
     attributes:
-      label: What would help
-      description: How you imagine it working, if you have an idea.
+      label: Proposed solution
+      description: How you would expect the feature to work.
 
   - type: textarea
     id: alternatives
     attributes:
-      label: Anything you already tried
+      label: Alternatives considered
+      description: Workarounds or other approaches you have tried.

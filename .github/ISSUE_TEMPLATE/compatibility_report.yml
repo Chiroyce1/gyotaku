@@ -1,30 +1,30 @@
-name: It works (or doesn't) on my setup
-description: Tell us how gyotaku ran on hardware or a desktop nobody has tried yet
+name: Compatibility report
+description: Report how gyotaku runs on a distribution, desktop or hardware configuration
 labels: ['compatibility']
 body:
   - type: markdown
     attributes:
       value: |
-        Several setups are still marked "not yet" in
-        [compatibility](https://github.com/xevrion/gyotaku/blob/main/docs/compatibility.md),
-        like GNOME, KDE, integrated gpus, ARM and distros without systemd.
-        A report that it simply works is just as useful as a bug.
+        Several configurations are listed as "Not yet verified" in the
+        [compatibility matrix](https://github.com/xevrion/gyotaku/blob/main/docs/compatibility.md),
+        including GNOME, KDE Plasma, integrated GPUs, ARM and non-systemd distributions.
+        Successful reports are as valuable as failures.
 
   - type: dropdown
     id: result
     attributes:
-      label: How did it go
+      label: Result
       options:
-        - Everything worked
-        - Mostly worked, some problems
-        - Didn't work
+        - Works
+        - Works with issues
+        - Does not work
     validations:
       required: true
 
   - type: input
     id: distro
     attributes:
-      label: Distro
+      label: Distribution and version
       placeholder: Linux Mint 22
     validations:
       required: true
@@ -32,7 +32,7 @@ body:
   - type: input
     id: desktop
     attributes:
-      label: Desktop, and wayland or X11
+      label: Desktop environment and session type
       description: '`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE` prints both.'
       placeholder: KDE wayland
     validations:
@@ -49,19 +49,19 @@ body:
   - type: checkboxes
     id: checked
     attributes:
-      label: What you tried
+      label: Verified functionality
       options:
-        - label: The build from the README
-        - label: The key opens and closes the window
-        - label: Onboarding found my screenshot folder
-        - label: Background reading picks up a new screenshot
-        - label: Copying text and images
+        - label: Build completes following the README
+        - label: Keyboard shortcut opens and closes the window
+        - label: First run detects the screenshot folder
+        - label: Background indexing picks up a new screenshot
+        - label: Copying text and images works
 
   - type: textarea
     id: notes
     attributes:
       label: Notes
       description: |
-        Anything that went wrong or felt slow. If you ran `GYOTAKU_FRAME_STATS=1 gyotaku-app --once`,
-        paste what it printed when the window closed.
+        Any problems or slowness observed. If available, include the output of
+        `GYOTAKU_FRAME_STATS=1 gyotaku-app --once`, printed when the window closes.
       render: text

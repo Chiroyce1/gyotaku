@@ -2,27 +2,29 @@
 
 ## Our pledge
 
-We want gyotaku to be a project anyone can use, report a problem in, and contribute to, whatever their experience level. Asking a basic question should never feel risky.
+We are committed to making participation in gyotaku a welcoming experience for everyone, regardless of experience level, background or identity. Asking a question, including a basic one, should never feel risky.
 
-## Expected behaviour
+## Expected behavior
 
-- Be patient with people who are new, to Rust, to Linux, or to open source.
-- Give feedback on the work, not the person.
+- Be patient with people who are new to Rust, Linux or open source.
+- Direct feedback at the work, not the person.
 - Assume good faith. Most disagreements are misunderstandings.
-- Accept that maintainers make the final call on scope and direction, even when you disagree.
+- Accept that maintainers make final decisions on scope and direction.
 
-## Unacceptable behaviour
+## Unacceptable behavior
 
-Harassment, personal attacks, discriminatory language, publishing others' private information, or sustained disruption of discussion.
-
-That includes other people's screenshots. Never post someone else's screenshot, or text read out of one, without their permission.
+- Harassment, personal attacks, or discriminatory language.
+- Publishing others' private information, including screenshots or text extracted from them, without explicit permission.
+- Sustained disruption of discussions.
 
 ## Reporting
 
-Report problems by opening an issue, or privately to the maintainer listed in the repository if the matter is sensitive. Reports are handled confidentially.
+Report conduct issues by opening an issue, or contact the maintainer privately through the email address on their GitHub profile if the matter is sensitive. All reports are handled confidentially.
 
-Maintainers may edit, hide or delete contributions that violate this document, and may block repeat offenders.
+## Enforcement
+
+Maintainers may edit, hide or remove contributions that violate this Code of Conduct, and may temporarily or permanently block contributors for repeated or severe violations.
 
 ## Attribution
 
-Adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1.
+This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1.

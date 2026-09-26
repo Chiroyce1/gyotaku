@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Question or idea
+    url: https://github.com/xevrion/gyotaku/discussions
+    about: For anything that isn't a bug report or a concrete feature request, start a discussion.
   - name: Something isn't working
     url: https://github.com/xevrion/gyotaku/blob/main/docs/troubleshooting.md
     about: The common problems and their fixes, worth a look before filing.
