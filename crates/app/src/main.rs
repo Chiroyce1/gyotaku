@@ -2,15 +2,17 @@ mod app;
 mod grid;
 mod images;
 mod input;
+mod resident;
 mod spring;
 mod theme;
 
 use std::borrow::Cow;
 
 use anyhow::Result;
+use futures::StreamExt as _;
 use gpui::{
-    App, AppContext, Bounds, KeyBinding, Size, TitlebarOptions, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, px, size,
+    App, AppContext, Bounds, KeyBinding, QuitMode, Size, TitlebarOptions,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, px, size,
 };
 use gpui_platform::application;
 use gyotaku_core::Index;
@@ -25,33 +27,89 @@ const FONTS: [&[u8]; 3] = [
 ];
 
 fn main() -> Result<()> {
-    // --window skips the overlay and opens an ordinary window, for desktops
-    // without layer shell (GNOME) or just for poking at it.
     // gpui reports window and gpu trouble through `log`, RUST_LOG=warn shows it.
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .format_timestamp_millis()
+        .init();
+    let args: Vec<String> = std::env::args().collect();
+    // --window skips the overlay and opens an ordinary window, for desktops
+    // without layer shell (GNOME) or just for poking at it. --once exits when
+    // the window closes instead of staying resident.
+    let windowed = args.iter().any(|a| a == "--window");
+    let once = args.iter().any(|a| a == "--once");
+
+    let socket = resident::socket_path();
+    if !once && resident::wake(&socket) {
+        return Ok(());
+    }
+    let listener = if once {
+        None
+    } else {
+        resident::listen(&socket)
+    };
     keep_big_allocations_off_the_heap();
-    let windowed = std::env::args().any(|a| a == "--window");
 
-    application().run(move |cx: &mut App| {
-        cx.text_system()
-            .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
-            .expect("the bundled fonts load");
-        bind_keys(cx);
+    let quit_mode = if listener.is_some() {
+        QuitMode::Explicit
+    } else {
+        QuitMode::LastWindowClosed
+    };
+    application()
+        .with_quit_mode(quit_mode)
+        .run(move |cx: &mut App| {
+            cx.text_system()
+                .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
+                .expect("the bundled fonts load");
+            bind_keys(cx);
+            toggle(windowed, cx);
 
-        let size = window_size(cx);
-        let window = if windowed {
-            None
-        } else {
-            open_overlay(size, cx)
-        };
-        let window = window.unwrap_or_else(|| open_window(size, cx));
-
-        let _ = window.update(cx, |view, window, cx| {
-            window.focus(&gpui::Focusable::focus_handle(view, cx), cx);
-            cx.activate(true);
+            let Some(listener) = listener else { return };
+            let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if stream.is_ok() && knocks.unbounded_send(()).is_err() {
+                        break;
+                    }
+                }
+            });
+            cx.spawn(async move |cx| {
+                while knocked.next().await.is_some() {
+                    let _ = cx.update(|cx| toggle(windowed, cx));
+                }
+            })
+            .detach();
+            // The view and every image it decoded are gone by now. Hand the
+            // freed pages back so an idle gyotaku stays small.
+            cx.on_window_closed(|_, _| release_memory()).detach();
         });
-    });
     Ok(())
+}
+
+/// Opens the search window, or closes it if it's already up, so one key
+/// both summons and dismisses it.
+fn toggle(windowed: bool, cx: &mut App) {
+    if let Some(open) = cx.windows().first().copied() {
+        let _ = open.update(cx, |_, window, _| window.remove_window());
+        return;
+    }
+    let size = window_size(cx);
+    let window = if windowed {
+        None
+    } else {
+        open_overlay(size, cx)
+    };
+    let window = window.unwrap_or_else(|| open_window(size, cx));
+    let _ = window.update(cx, |view, window, cx| {
+        window.focus(&gpui::Focusable::focus_handle(view, cx), cx);
+        cx.activate(true);
+    });
+}
+
+fn release_memory() {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }
 
 /// A decoded thumbnail is ~0.5 MB. glibc normally raises its mmap threshold

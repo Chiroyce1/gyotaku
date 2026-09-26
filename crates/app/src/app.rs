@@ -254,14 +254,16 @@ impl Gyotaku {
     // Actions. They're bound at the root, so they arrive whether the search
     // field or anything else has focus.
 
-    fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
+    fn back(&mut self, _: &Back, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(d) = &mut self.detail {
             d.open.set_target(0.0);
             self.last_frame = Instant::now();
         } else if self.searching() {
             self.input.update(cx, |input, cx| input.clear(cx));
         } else {
-            cx.quit();
+            // Resident, this just hides. With --once it's the last window
+            // and the app exits with it.
+            window.remove_window();
         }
         cx.notify();
     }
