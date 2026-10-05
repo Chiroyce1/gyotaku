@@ -1,7 +1,7 @@
 mod settings;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -12,12 +12,13 @@ use std::sync::Arc;
 
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context,
-    CursorStyle, ElementId, Entity, FocusHandle, Focusable, FontWeight, ListAlignment, ListOffset,
-    ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    RenderImage, SharedString, Subscription, Window, actions, canvas, div, ease_out_quint, img,
-    list, point, prelude::*, px, size,
+    CursorStyle, ElementId, Entity, FocusHandle, Focusable, FontWeight, Hsla, ListAlignment,
+    ListOffset, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder,
+    Pixels, Point, RenderImage, SharedString, Subscription, Window, actions, canvas, div,
+    ease_out_quint, img, list, point, prelude::*, px, size,
 };
-use gyotaku_core::{Config, Hit, Index, Line, Rect, ThemeChoice};
+use gyotaku_core::trash::{self, Trashed};
+use gyotaku_core::{Config, Hit, Index, Line, Rect, Shot, ThemeChoice};
 
 use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
@@ -45,7 +46,14 @@ actions!(
         Quit,
         OpenSettings,
         Toggle,
-        Remove
+        Remove,
+        MarkUp,
+        MarkDown,
+        MarkLeft,
+        MarkRight,
+        MarkAll,
+        Trash,
+        Undo
     ]
 );
 
@@ -72,7 +80,20 @@ const PRESS: Duration = Duration::from_millis(110);
 const THUMBS_KEPT_HIDDEN: usize = 40;
 const REPAINT_BATCH: Duration = Duration::from_millis(20);
 const TOAST_SHOWN: Duration = Duration::from_millis(1400);
+// Long enough to read it and reach for ctrl z.
+const TOAST_UNDO: Duration = Duration::from_millis(5000);
 const TOAST_FADE: Duration = Duration::from_millis(120);
+// A marked tile's picture shrinks inside its frame, the way photo apps show
+// a selection, so marked and unmarked read apart at a glance without colour.
+const MARK_INSET: f32 = 7.0;
+const MARK: Duration = Duration::from_millis(130);
+// Trashed tiles shrink away (and restored ones grow back) over this long,
+// then the grid closes the gap.
+const TILE_FADE: Duration = Duration::from_millis(180);
+const BAR_IN: Duration = Duration::from_millis(140);
+// Leaving is quicker than arriving, it's the less interesting half.
+const BAR_OUT: Duration = Duration::from_millis(110);
+const BAR_SWAP: Duration = Duration::from_millis(110);
 
 const BROWSE_LIMIT: usize = 20_000;
 const SEARCH_LIMIT: usize = 2_000;
@@ -131,6 +152,52 @@ pub struct Gyotaku {
     /// Drawing on the cpu (no usable gpu), see `calm`.
     software: bool,
     repaint_pending: bool,
+
+    /// Shots marked for the trash, by id so they survive a refresh, with
+    /// when they were marked so the change can animate.
+    marked: HashMap<i64, Instant>,
+    /// Recently unmarked ones, still animating back.
+    unmarking: HashMap<i64, Instant>,
+    /// Where a shift selection started, and what was marked before it, so
+    /// moving back over the range unmarks it again like a file manager does.
+    anchor: Option<(usize, HashSet<i64>)>,
+    /// Asking "move these to the trash?" and waiting for enter or escape.
+    confirming: bool,
+    /// The last batch moved to the trash, for ctrl z.
+    undo: Vec<Binned>,
+    /// Bumped each time the mark bar appears, so its entrance replays.
+    bar_shown: Option<usize>,
+    bars: usize,
+    /// What the bar said last, kept so it can fade out still saying it.
+    bar_last: Option<Bar>,
+    bar_leaving: Option<Instant>,
+    /// Tiles on their way out to the trash, or back in from it.
+    fading: HashMap<i64, Fade>,
+    /// Bumped per trash, so a stale "close the gap" timer does nothing.
+    leaves: usize,
+}
+
+#[derive(Clone, Copy)]
+struct Fade {
+    arriving: bool,
+    since: Instant,
+    /// Leaving tiles keep their marked look all the way out.
+    marked: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Bar {
+    count: usize,
+    confirming: bool,
+    can_mark_more: bool,
+}
+
+/// Everything needed to put a trashed shot back, index rows included, so
+/// undoing doesn't make the watcher read it all over again.
+struct Binned {
+    trashed: Trashed,
+    shot: Shot,
+    lines: Vec<Line>,
 }
 
 enum Page {
@@ -141,6 +208,8 @@ enum Page {
 
 struct Toast {
     message: SharedString,
+    /// A key hint shown after the message, like "ctrl z undo".
+    keys: Option<(&'static str, &'static str)>,
     id: usize,
     leaving: bool,
 }
@@ -220,6 +289,17 @@ impl Gyotaku {
             stats: FrameStats::new(),
             software: false,
             repaint_pending: false,
+            marked: HashMap::new(),
+            unmarking: HashMap::new(),
+            anchor: None,
+            confirming: false,
+            undo: Vec::new(),
+            bar_shown: None,
+            bars: 0,
+            bar_last: None,
+            bar_leaving: None,
+            fading: HashMap::new(),
+            leaves: 0,
         };
         // No config means onboarding was never finished.
         if !set_up {
@@ -310,6 +390,9 @@ impl Gyotaku {
     /// and let the rest go.
     pub fn hidden(&mut self, cx: &mut Context<Self>) {
         self.visible = false;
+        // A question left hanging would greet the next summon with a
+        // trash prompt nobody remembers asking for.
+        self.confirming = false;
         self.stats.report();
         self.thumbs.shrink_to(THUMBS_KEPT_HIDDEN, cx);
         self.full.shrink_to(1, cx);
@@ -325,6 +408,9 @@ impl Gyotaku {
             .map(|h| h.id);
 
         self.load_hits(cx);
+        let present: HashSet<i64> = self.hits.iter().map(|h| h.id).collect();
+        self.marked.retain(|id, _| present.contains(id));
+        self.anchor = None;
         let at = |id: Option<i64>| id.and_then(|id| self.hits.iter().position(|h| h.id == id));
         self.selected = at(selected).unwrap_or(0);
         match (at(open), self.detail.as_mut()) {
@@ -353,6 +439,14 @@ impl Gyotaku {
     }
 
     fn search(&mut self, cx: &mut Context<Self>) {
+        // Marks belong to the results they were made on. Carrying them into
+        // a new search would trash shots that aren't even on screen.
+        self.marked.clear();
+        self.unmarking.clear();
+        self.anchor = None;
+        self.confirming = false;
+        self.fading.clear();
+        self.leaves += 1;
         self.load_hits(cx);
         self.generation += 1;
         self.selected = 0;
@@ -456,9 +550,15 @@ impl Gyotaku {
     }
 
     fn select(&mut self, item: Option<usize>, cx: &mut Context<Self>) {
+        self.anchor = None;
+        self.move_to(item, cx);
+    }
+
+    fn move_to(&mut self, item: Option<usize>, cx: &mut Context<Self>) {
         let Some(item) = item.filter(|i| *i < self.hits.len()) else {
             return;
         };
+        self.confirming = false;
         self.selected = item;
         if let Some(&(row, _)) = self.located.get(item) {
             self.list.scroll_to_reveal_item(row);
@@ -466,6 +566,310 @@ impl Gyotaku {
         if self.detail.is_some() {
             self.show(item, cx);
         }
+        cx.notify();
+    }
+
+    // Marking shots for the trash. Ctrl click marks one, shift click or
+    // shift and the arrows mark a run, ctrl shift a marks everything found.
+
+    fn set_mark(&mut self, id: i64, on: bool) {
+        let now = Instant::now();
+        if on {
+            if let std::collections::hash_map::Entry::Vacant(e) = self.marked.entry(id) {
+                e.insert(now);
+                self.unmarking.remove(&id);
+            }
+        } else if self.marked.remove(&id).is_some() {
+            self.unmarking.insert(id, now);
+        }
+    }
+
+    fn clear_marks(&mut self) {
+        for id in self.marked.keys().copied().collect::<Vec<_>>() {
+            self.set_mark(id, false);
+        }
+        self.anchor = None;
+        self.confirming = false;
+    }
+
+    fn toggle_mark(&mut self, item: usize, cx: &mut Context<Self>) {
+        let Some(id) = self.hits.get(item).map(|h| h.id) else {
+            return;
+        };
+        let on = !self.marked.contains_key(&id);
+        self.set_mark(id, on);
+        self.select(Some(item), cx);
+    }
+
+    /// Marks the run from the anchor to `to`, on top of whatever was marked
+    /// before the run started.
+    fn extend_to(&mut self, to: Option<usize>, cx: &mut Context<Self>) {
+        let Some(to) = to.filter(|i| *i < self.hits.len()) else {
+            return;
+        };
+        let (anchor, before) = match self.anchor.take() {
+            Some(a) => a,
+            None => (self.selected, self.marked.keys().copied().collect()),
+        };
+        let (lo, hi) = (anchor.min(to), anchor.max(to));
+        let run: HashSet<i64> = self.hits[lo..=hi].iter().map(|h| h.id).collect();
+        let stale: Vec<i64> = self
+            .marked
+            .keys()
+            .filter(|id| !run.contains(id) && !before.contains(id))
+            .copied()
+            .collect();
+        for id in stale {
+            self.set_mark(id, false);
+        }
+        for id in run {
+            self.set_mark(id, true);
+        }
+        self.anchor = Some((anchor, before));
+        self.move_to(Some(to), cx);
+    }
+
+    fn mark_up(&mut self, _: &MarkUp, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() || self.detail.is_some() {
+            return;
+        }
+        let to = self
+            .located
+            .get(self.selected)
+            .and_then(|&at| grid::vertical(&self.rows, at, false));
+        self.extend_to(to, cx);
+    }
+
+    fn mark_down(&mut self, _: &MarkDown, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() || self.detail.is_some() {
+            return;
+        }
+        let to = self
+            .located
+            .get(self.selected)
+            .and_then(|&at| grid::vertical(&self.rows, at, true));
+        self.extend_to(to, cx);
+    }
+
+    fn mark_left(&mut self, _: &MarkLeft, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.on_panel() && self.detail.is_none() {
+            self.extend_to(self.selected.checked_sub(1), cx);
+        }
+    }
+
+    fn mark_right(&mut self, _: &MarkRight, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.on_panel() && self.detail.is_none() {
+            self.extend_to(Some(self.selected + 1), cx);
+        }
+    }
+
+    fn mark_all(&mut self, _: &MarkAll, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() || self.detail.is_some() {
+            return;
+        }
+        // With no query that would be the whole library, two keys away from
+        // the trash. Narrowing it down first is the point anyway.
+        if !self.searching() {
+            self.flash("search first, then mark everything it finds", cx);
+            return;
+        }
+        for id in self.hits.iter().map(|h| h.id).collect::<Vec<_>>() {
+            self.set_mark(id, true);
+        }
+        self.anchor = None;
+        cx.notify();
+    }
+
+    /// What ctrl delete acts on: the open shot, else the marked ones, else
+    /// the selected one. In result order, so the toast and undo match the grid.
+    fn trash_targets(&self) -> Vec<usize> {
+        if let Some(d) = self.detail.as_ref().filter(|d| d.open.target() == 1.0) {
+            return vec![d.hit];
+        }
+        if self.marked.is_empty() {
+            return (self.selected < self.hits.len())
+                .then_some(self.selected)
+                .into_iter()
+                .collect();
+        }
+        (0..self.hits.len())
+            .filter(|&i| self.marked.contains_key(&self.hits[i].id))
+            .collect()
+    }
+
+    /// Ctrl delete asks first, a second ctrl delete or enter goes ahead.
+    fn trash(&mut self, _: &Trash, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() || self.trash_targets().is_empty() {
+            return;
+        }
+        if self.confirming {
+            self.trash_now(cx);
+        } else {
+            self.confirming = true;
+            cx.notify();
+        }
+    }
+
+    fn trash_now(&mut self, cx: &mut Context<Self>) {
+        self.confirming = false;
+        let targets = self.trash_targets();
+        let Some(&first) = targets.first() else {
+            return;
+        };
+        let mut batch = Vec::new();
+        let mut failed = 0;
+        for &i in &targets {
+            let hit = &self.hits[i];
+            let lines = self.index.lines(hit.id).unwrap_or_default();
+            match trash::trash(&hit.path) {
+                Ok(trashed) => {
+                    // The watcher would notice the file leaving too, but it
+                    // may not be running, and the grid shouldn't wait for it.
+                    let _ = self.index.remove(&hit.path);
+                    batch.push(Binned {
+                        trashed,
+                        shot: Shot {
+                            path: hit.path.clone(),
+                            mtime: hit.mtime,
+                            width: hit.width,
+                            height: hit.height,
+                        },
+                        lines,
+                    });
+                }
+                Err(e) => {
+                    eprintln!("{e:#}");
+                    failed += 1;
+                }
+            }
+        }
+
+        let moved = batch.len();
+        // The files are already gone at this point. What's left is only the
+        // grid letting go of them: they shrink and fade where they sit, and
+        // only then does the grid close up around the gap.
+        let now = Instant::now();
+        for b in &batch {
+            if let Some(hit) = self.hits.iter().find(|h| h.path == b.shot.path) {
+                let marked = self.marked.contains_key(&hit.id);
+                self.fading.insert(
+                    hit.id,
+                    Fade {
+                        arriving: false,
+                        since: now,
+                        marked,
+                    },
+                );
+            }
+        }
+        if moved > 0 {
+            self.undo = batch;
+        }
+        self.marked.clear();
+        self.unmarking.clear();
+        self.anchor = None;
+        if let Some(d) = self.detail.as_mut() {
+            // The tile it would fly back to is leaving, so it fades instead.
+            d.grow = false;
+            d.open.set_response(FADE_RESPONSE, 1.0);
+            d.open.set_target(0.0);
+            self.last_frame = Instant::now();
+        }
+        self.leaves += 1;
+        let token = self.leaves;
+        let settle = move |this: &mut Self, cx: &mut Context<Self>| {
+            if this.leaves != token {
+                return;
+            }
+            this.fading.retain(|_, f| f.arriving);
+            this.after_change(cx);
+            this.selected = first.min(this.hits.len().saturating_sub(1));
+            this.reveal_selected = true;
+        };
+        if self.calm(cx) || moved == 0 {
+            settle(self, cx);
+        } else {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(TILE_FADE).await;
+                let _ = this.update(cx, |this, cx| settle(this, cx));
+            })
+            .detach();
+        }
+        cx.notify();
+
+        let message = match (moved, failed) {
+            (0, _) => "couldn't move it to the trash".to_string(),
+            (1, 0) => "moved to the trash".to_string(),
+            (n, 0) => format!("moved {} to the trash", thousands(n)),
+            (n, f) => format!("moved {}, {} couldn't be moved", thousands(n), thousands(f)),
+        };
+        if moved > 0 {
+            self.flash_with(message, Some(("ctrl z", "undo")), TOAST_UNDO, cx);
+        } else {
+            self.flash(message, cx);
+        }
+    }
+
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() || self.undo.is_empty() {
+            return;
+        }
+        // An undo straight after the trash, before its tiles finished
+        // leaving, takes over from that settle.
+        self.leaves += 1;
+        self.fading.clear();
+        let mut back = Vec::new();
+        let mut failed = 0;
+        for u in std::mem::take(&mut self.undo) {
+            match trash::restore(&u.trashed) {
+                Ok(()) => {
+                    if let Ok(id) = self.index.insert(&u.shot, &u.lines) {
+                        back.push(id);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{e:#}");
+                    failed += 1;
+                }
+            }
+        }
+        self.after_change(cx);
+        // What came back grows back in, and stays marked so it's plain
+        // which ones they were.
+        let now = Instant::now();
+        for &id in &back {
+            self.set_mark(id, true);
+            self.fading.insert(
+                id,
+                Fade {
+                    arriving: true,
+                    since: now,
+                    marked: true,
+                },
+            );
+        }
+        if let Some(i) = self.hits.iter().position(|h| back.contains(&h.id)) {
+            self.selected = i;
+            self.reveal_selected = true;
+        }
+        let message = match (back.len(), failed) {
+            (0, _) => "couldn't put them back".to_string(),
+            (1, 0) => "put back".to_string(),
+            (n, 0) => format!("put back {}", thousands(n)),
+            (n, f) => format!("put back {}, {} couldn't be", thousands(n), thousands(f)),
+        };
+        self.flash(message, cx);
+    }
+
+    /// After shots leave or come back: recount, rerun the query, relayout.
+    fn after_change(&mut self, cx: &mut Context<Self>) {
+        self.searchable = self.index.visible_len().unwrap_or(self.searchable);
+        let searchable = self.searchable;
+        self.input.update(cx, |input, cx| {
+            input.placeholder = placeholder(searchable);
+            cx.notify();
+        });
+        self.refresh(cx);
         cx.notify();
     }
 
@@ -481,6 +885,11 @@ impl Gyotaku {
         if self.on_panel() {
             return self.panel_back(window, cx);
         }
+        if self.confirming {
+            self.confirming = false;
+            cx.notify();
+            return;
+        }
         // A shot already on its way closed doesn't eat a second escape, that
         // one goes to the next step. Pressing escape twice quickly should do
         // two things, not one, whatever speed the machine animates at.
@@ -491,6 +900,8 @@ impl Gyotaku {
             }
             d.open.set_target(0.0);
             self.last_frame = Instant::now();
+        } else if !self.marked.is_empty() {
+            self.clear_marks();
         } else if self.searching() {
             self.input.update(cx, |input, cx| input.clear(cx));
         } else {
@@ -505,6 +916,9 @@ impl Gyotaku {
     fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
         if self.on_panel() {
             return self.panel_key(Key::Enter, window, cx);
+        }
+        if self.confirming {
+            return self.trash_now(cx);
         }
         if self.detail.as_ref().is_some_and(|d| d.open.target() == 1.0) {
             self.open_selected(cx);
@@ -711,10 +1125,21 @@ impl Gyotaku {
     }
 
     fn flash(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.flash_with(message, None, TOAST_SHOWN, cx);
+    }
+
+    fn flash_with(
+        &mut self,
+        message: impl Into<SharedString>,
+        keys: Option<(&'static str, &'static str)>,
+        shown: Duration,
+        cx: &mut Context<Self>,
+    ) {
         self.toasts += 1;
         let id = self.toasts;
         self.toast = Some(Toast {
             message: message.into(),
+            keys,
             id,
             leaving: false,
         });
@@ -722,7 +1147,7 @@ impl Gyotaku {
             // Shown, then faded out, then gone. A newer toast takes over and
             // this one's timers do nothing.
             for leaving in [true, false] {
-                let wait = if leaving { TOAST_SHOWN } else { TOAST_FADE };
+                let wait = if leaving { shown } else { TOAST_FADE };
                 cx.background_executor().timer(wait).await;
                 let _ = this.update(cx, |this, cx| {
                     let Some(toast) = this.toast.as_mut().filter(|t| t.id == id) else {
@@ -827,37 +1252,55 @@ impl Gyotaku {
         let thumb = self.image(&path, Some(&original), window, cx);
         let lines = self.matched_lines(i);
         let hit = &self.hits[i];
-        let crop = gyotaku_core::tile_crop(hit.width, hit.height);
+        let (id, crop) = (hit.id, gyotaku_core::tile_crop(hit.width, hit.height));
         let sink = self.tile_bounds.clone();
+        let calm = self.calm(cx);
 
-        let mut tile = div()
-            .id(("tile", i))
-            .relative()
-            .flex_none()
-            .w(px(w))
-            .h(px(h))
-            .rounded(px(RADIUS))
-            .bg(theme.tile)
-            .cursor(CursorStyle::PointingHand)
+        let (mut m, moving) = self.mark_progress(id, calm);
+        if moving {
+            window.request_animation_frame();
+        } else if !self.marked.contains_key(&id) {
+            self.unmarking.remove(&id);
+        }
+        // 1 is fully here, 0 is gone to the trash (or not back from it yet).
+        let (presence, fading) = self.presence(id, calm);
+        if fading {
+            window.request_animation_frame();
+        } else if self.fading.get(&id).is_some_and(|f| f.arriving) {
+            self.fading.remove(&id);
+        }
+        if self
+            .fading
+            .get(&id)
+            .is_some_and(|f| !f.arriving && f.marked)
+        {
+            m = 1.0;
+        }
+        // The picture and everything drawn on it live in an inner frame that
+        // shrinks when marked, so the highlight boxes shrink right along.
+        let inset = MARK_INSET * m + (1.0 - presence) * w.min(h) * 0.16;
+        let (iw, ih) = (w - inset * 2., h - inset * 2.);
+        let radius = px(RADIUS - (RADIUS - 6.) * m);
+
+        let mut inner = div()
+            .absolute()
+            .left(px(inset))
+            .top(px(inset))
+            .w(px(iw))
+            .h(px(ih))
             .children(
                 thumb
                     .clone()
-                    .map(|t| img(t).absolute().size_full().rounded(px(RADIUS))),
+                    .map(|t| img(t).absolute().size_full().rounded(radius)),
             );
 
         // The ink press: the whole print darkens and only the words that
         // matched stay lit, each one a window cut through the veil back to
         // the thumbnail underneath.
         if let Some(thumb) = thumb.filter(|_| !lines.is_empty()) {
-            tile = tile.child(
-                div()
-                    .absolute()
-                    .size_full()
-                    .rounded(px(RADIUS))
-                    .bg(theme.veil),
-            );
+            inner = inner.child(div().absolute().size_full().rounded(radius).bg(theme.veil));
             for (j, line) in lines.iter().enumerate() {
-                let Some(b) = in_tile(line.rect, crop, w, h) else {
+                let Some(b) = in_tile(line.rect, crop, iw, ih) else {
                     continue;
                 };
                 let lit = div()
@@ -875,16 +1318,16 @@ impl Gyotaku {
                             .absolute()
                             .left(px(-b.x - 1.))
                             .top(px(-b.y - 1.))
-                            .w(px(w))
-                            .h(px(h)),
+                            .w(px(iw))
+                            .h(px(ih)),
                     );
                 // This replays on every keystroke, so it stays short: typing
                 // is the most frequent thing anyone does here.
-                if self.calm(cx) {
-                    tile = tile.child(lit);
+                if calm {
+                    inner = inner.child(lit);
                 } else {
                     let id = ElementId::Name(format!("press-{}-{i}-{j}", self.generation).into());
-                    tile = tile.child(lit.with_animation(
+                    inner = inner.child(lit.with_animation(
                         id,
                         Animation::new(PRESS).with_easing(ease_out_quint()),
                         |el, t| el.opacity(t),
@@ -893,16 +1336,46 @@ impl Gyotaku {
             }
         }
 
-        tile = tile.child(
+        inner = inner.child(
             div()
                 .absolute()
                 .size_full()
-                .rounded(px(RADIUS))
+                .rounded(radius)
                 .border_1()
                 .border_color(theme.image_edge),
         );
 
-        if i == self.selected {
+        let mut tile = div()
+            .id(("tile", i))
+            .relative()
+            .flex_none()
+            .w(px(w))
+            .h(px(h))
+            .rounded(px(RADIUS))
+            .bg(theme.tile)
+            .cursor(CursorStyle::PointingHand)
+            .opacity(presence)
+            .child(inner);
+
+        if m > 0.0 {
+            // An ink seal with a check, ringed in the panel colour so it
+            // reads on a white page and a black terminal alike.
+            tile = tile.child(
+                div()
+                    .absolute()
+                    .top(px(3.))
+                    .left(px(3.))
+                    .size(px(20.))
+                    .rounded_full()
+                    .bg(theme.text)
+                    .border_2()
+                    .border_color(theme.panel)
+                    .opacity(m)
+                    .child(check(theme.panel)),
+            );
+        }
+
+        if i == self.selected && presence == 1.0 {
             // Offset outward by 3 px, so the radius grows by 3 too, the ring
             // stays concentric with the tile's corners.
             tile = tile.child(
@@ -926,11 +1399,52 @@ impl Gyotaku {
             .absolute()
             .size_full(),
         )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.selected = i;
-            this.show(i, cx);
+        .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+            let mods = e.modifiers();
+            if mods.secondary() {
+                this.toggle_mark(i, cx);
+            } else if mods.shift {
+                this.extend_to(Some(i), cx);
+            } else {
+                this.confirming = false;
+                this.anchor = None;
+                this.selected = i;
+                this.show(i, cx);
+            }
         }))
         .into_any_element()
+    }
+
+    /// How present a tile is, 1 normally, heading to 0 on its way to the
+    /// trash or up from 0 on its way back, and whether that's still moving.
+    fn presence(&self, id: i64, calm: bool) -> (f32, bool) {
+        let Some(f) = self.fading.get(&id) else {
+            return (1.0, false);
+        };
+        let t = if calm {
+            1.0
+        } else {
+            (f.since.elapsed().as_secs_f32() / TILE_FADE.as_secs_f32()).min(1.0)
+        };
+        let eased = ease_out_quint()(t);
+        (if f.arriving { eased } else { 1.0 - eased }, t < 1.0)
+    }
+
+    /// How far into its marked look a tile is, 0 to 1, and whether that's
+    /// still moving.
+    fn mark_progress(&self, id: i64, calm: bool) -> (f32, bool) {
+        let (on, since) = match (self.marked.get(&id), self.unmarking.get(&id)) {
+            (Some(t), _) => (true, *t),
+            (None, Some(t)) => (false, *t),
+            (None, None) => return (0.0, false),
+        };
+        let t = if calm {
+            1.0
+        } else {
+            (since.elapsed().as_secs_f32() / MARK.as_secs_f32()).min(1.0)
+        };
+        let eased = ease_out_quint()(t);
+        (if on { eased } else { 1.0 - eased }, t < 1.0)
     }
 
     fn render_header(&self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -1210,9 +1724,177 @@ impl Gyotaku {
                         .child(hint("ctrl c", "copy text", theme))
                         .child(hint("ctrl shift c", "copy image", theme))
                         .child(hint("enter", "open", theme))
+                        .child(hint("ctrl del", "trash", theme))
                         .child(hint("\u{2190} \u{2192}", "next", theme)),
                 )
                 .into_any_element(),
+        )
+    }
+
+    /// While shots are marked: how many, and what can be done with them.
+    /// After ctrl delete it turns into the question itself.
+    fn render_mark_bar(
+        &mut self,
+        theme: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let count = if self.confirming {
+            self.trash_targets().len()
+        } else {
+            self.marked.len()
+        };
+        let showing = (self.confirming || self.detail.is_none()) && count > 0 && !self.on_panel();
+        let calm = self.calm(cx);
+
+        // Gone from the state, the bar still sinks away saying what it said.
+        let mut leaving = None;
+        if showing {
+            self.bar_leaving = None;
+            self.bar_last = Some(Bar {
+                count,
+                confirming: self.confirming,
+                can_mark_more: self.searching() && count < self.hits.len(),
+            });
+        } else {
+            self.bar_shown = None;
+            self.bar_last?;
+            let since = *self.bar_leaving.get_or_insert_with(Instant::now);
+            let t = since.elapsed().as_secs_f32() / BAR_OUT.as_secs_f32();
+            if calm || t >= 1.0 {
+                self.bar_last = None;
+                self.bar_leaving = None;
+                return None;
+            }
+            window.request_animation_frame();
+            leaving = Some(ease_out_quint()(t));
+        }
+        let state = self.bar_last?;
+        let n = state.count;
+        let shown = match self.bar_shown {
+            Some(b) => b,
+            None if showing => {
+                self.bars += 1;
+                self.bar_shown = Some(self.bars);
+                self.bars
+            }
+            None => 0,
+        };
+
+        let mut row = div().flex().items_center().gap_2();
+        if state.confirming {
+            let question = if n == 1 {
+                "move this screenshot to the trash?".to_string()
+            } else {
+                format!("move {} screenshots to the trash?", thousands(n))
+            };
+            row = row
+                .child(div().font_weight(FontWeight::MEDIUM).pr_2().child(question))
+                .child(button(
+                    "bar-yes",
+                    "enter",
+                    "move",
+                    theme,
+                    cx.listener(|this, _, _, cx| this.trash_now(cx)),
+                ))
+                .child(button(
+                    "bar-no",
+                    "esc",
+                    "cancel",
+                    theme,
+                    cx.listener(|this, _, _, cx| {
+                        this.confirming = false;
+                        cx.notify();
+                    }),
+                ));
+        } else {
+            row = row
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .pr_2()
+                        .child(format!("{} marked", thousands(n))),
+                )
+                .child(button(
+                    "bar-trash",
+                    "ctrl del",
+                    "move to trash",
+                    theme,
+                    cx.listener(|this, _, _, cx| {
+                        this.confirming = true;
+                        cx.notify();
+                    }),
+                ))
+                .when(state.can_mark_more, |row| {
+                    row.child(button(
+                        "bar-all",
+                        "ctrl shift a",
+                        "mark all",
+                        theme,
+                        cx.listener(|this, _, window, cx| this.mark_all(&MarkAll, window, cx)),
+                    ))
+                })
+                .child(button(
+                    "bar-clear",
+                    "esc",
+                    "clear",
+                    theme,
+                    cx.listener(|this, _, _, cx| {
+                        this.clear_marks();
+                        cx.notify();
+                    }),
+                ));
+        }
+
+        // Turning into the question (and back) swaps what it says with a
+        // quick fade rather than a cut.
+        let row = if calm {
+            row.into_any_element()
+        } else {
+            row.with_animation(
+                ElementId::Name(format!("bar-{shown}-{}", state.confirming).into()),
+                Animation::new(BAR_SWAP).with_easing(ease_out_quint()),
+                |el, t| el.opacity(t),
+            )
+            .into_any_element()
+        };
+        let pill = div()
+            .pl_4()
+            .pr_1p5()
+            .py_1p5()
+            .rounded_full()
+            .bg(theme.panel)
+            .border_1()
+            .border_color(theme.hairline)
+            .shadow_lg()
+            .text_sm()
+            .child(row);
+        let bar = div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom(px(16.))
+            .flex()
+            .justify_center()
+            .child(pill);
+
+        if let Some(t) = leaving {
+            return Some(
+                bar.bottom(px(16. - 8. * t))
+                    .opacity(1. - t)
+                    .into_any_element(),
+            );
+        }
+        if calm {
+            return Some(bar.into_any_element());
+        }
+        Some(
+            bar.with_animation(
+                ElementId::Name(format!("bar-{shown}").into()),
+                Animation::new(BAR_IN).with_easing(ease_out_quint()),
+                |el, t| el.bottom(px(8. + 8. * t)).opacity(t),
+            )
+            .into_any_element(),
         )
     }
 
@@ -1238,7 +1920,27 @@ impl Gyotaku {
                         .bg(theme.text)
                         .text_color(theme.panel)
                         .text_sm()
+                        .flex()
+                        .items_center()
+                        .gap_3()
                         .child(toast.message.clone())
+                        .children(toast.keys.map(|(keys, what)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1p5()
+                                .text_xs()
+                                .opacity(0.7)
+                                .child(
+                                    div()
+                                        .px(px(6.))
+                                        .rounded(px(5.))
+                                        .border_1()
+                                        .border_color(theme.panel)
+                                        .child(keys),
+                                )
+                                .child(what)
+                        }))
                         .with_animation(
                             ElementId::Name(format!("toast-{id}-{phase}").into()),
                             Animation::new(TOAST_FADE).with_easing(ease_out_quint()),
@@ -1301,6 +2003,7 @@ impl Render for Gyotaku {
                 let mut content = vec![self.render_header(theme, cx), body];
                 content.extend(self.render_scrollbar(theme).map(|s| s.into_any_element()));
                 content.extend(self.render_detail(window, cx));
+                content.extend(self.render_mark_bar(theme, window, cx));
                 content
             }
         };
@@ -1334,6 +2037,13 @@ impl Render for Gyotaku {
             .on_action(cx.listener(Self::reveal))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::open_settings_action))
+            .on_action(cx.listener(Self::mark_up))
+            .on_action(cx.listener(Self::mark_down))
+            .on_action(cx.listener(Self::mark_left))
+            .on_action(cx.listener(Self::mark_right))
+            .on_action(cx.listener(Self::mark_all))
+            .on_action(cx.listener(Self::trash))
+            .on_action(cx.listener(Self::undo))
             .relative()
             .size_full()
             .flex()
@@ -1352,6 +2062,48 @@ impl Render for Gyotaku {
         self.stats.end(started);
         root
     }
+}
+
+/// A check mark drawn as a stroke. The font's ✓ at this size reads as a v.
+fn check(color: Hsla) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |b, _, window, _| {
+            let at = |x: f32, y: f32| {
+                point(
+                    b.origin.x + b.size.width * x,
+                    b.origin.y + b.size.height * y,
+                )
+            };
+            let mut path = PathBuilder::stroke(px(1.75));
+            path.move_to(at(0.28, 0.52));
+            path.line_to(at(0.44, 0.67));
+            path.line_to(at(0.73, 0.35));
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size_full()
+}
+
+/// A key hint that can also be clicked, for whoever reached for the mouse.
+fn button(
+    id: &'static str,
+    keys: &'static str,
+    what: &'static str,
+    theme: Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .px_2()
+        .py_1()
+        .rounded_full()
+        .cursor(CursorStyle::PointingHand)
+        .hover(move |s| s.bg(theme.hover_wash))
+        .on_click(on_click)
+        .child(hint(keys, what, theme))
 }
 
 fn hint(keys: &'static str, what: &'static str, theme: Theme) -> impl IntoElement {

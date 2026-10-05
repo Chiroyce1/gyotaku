@@ -2606,6 +2606,8 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "directories",
+ "jiff",
+ "libc",
  "rusqlite",
  "serde",
  "sha2",

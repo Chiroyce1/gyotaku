@@ -14,7 +14,7 @@ gyotaku indexes every screenshot by its OCR'd text so it can be searched. `crate
 - Every number in the README and docs is measured on real hardware, never estimated or extrapolated. Paste the measurement when you change one.
 - A behaviour is not finished until it has run for real: the app opened, a real screenshot read, a real search returned.
 - Fail soft. No gpu, no systemd, no network, old glibc, a broken config or a huge image must never crash anything or harm the machine.
-- Never write to, move or delete a user's screenshots.
+- Never write to, move or delete a user's screenshots. The one exception is an explicit, confirmed move to the system trash (`crates/core/src/trash.rs`), which is always undoable and never deletes.
 - Keep it generic. No code path or text assumes one desktop, compositor, distro or gpu vendor.
 
 ## Rust

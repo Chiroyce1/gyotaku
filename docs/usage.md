@@ -2,6 +2,7 @@
 
 - [Searching](#searching)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Moving screenshots to the trash](#moving-screenshots-to-the-trash)
 - [Mouse](#mouse)
 - [Settings](#settings)
 - [Background indexing](#background-indexing)
@@ -36,13 +37,30 @@ While a query is active, each thumbnail is dimmed and the matched lines are high
 | Ctrl+O | Open the file in the default image viewer | Same |
 | Ctrl+Shift+O | Show the file in its folder | Same |
 | Ctrl+, | Open settings | |
-| Escape | Clear the search, then close the window | Return to the grid |
+| Shift+Arrow keys | Mark a run of screenshots | |
+| Ctrl+Shift+A | Mark every result of the current search | |
+| Ctrl+Delete | Move the marked screenshots, or the selected one, to the trash | Move this screenshot to the trash |
+| Ctrl+Z | Put back what was last moved to the trash | |
+| Escape | Cancel a pending move, clear marks, clear the search, then close the window | Return to the grid |
 
 The shortcut bound to `gyotaku-app` also closes the window. When reopened, the window restores its previous state: the same query, selection and open screenshot.
+
+## Moving screenshots to the trash
+
+Search for what you no longer need, mark the results, and move them to the trash in one step. For example, search `otp`, press Ctrl+Shift+A to mark every match, then Ctrl+Delete.
+
+- Nothing is deleted. Screenshots go to the system trash following the [freedesktop.org trash specification](https://specifications.freedesktop.org/trash-spec/latest/), so they appear in your file manager's trash and can be restored from there.
+- Screenshots on another drive go to that drive's own trash (`.Trash-<uid>` at its root) and are never copied across drives.
+- Ctrl+Delete always asks for confirmation, showing how many screenshots will be moved. Press Enter (or Ctrl+Delete again) to confirm, Escape to cancel.
+- Ctrl+Z puts the last batch back in place, with its text, so nothing is read again. A screenshot is not restored over a new file that has since taken its name.
+- Marking all results requires an active search, so the entire library cannot be marked by accident.
+- Marks are cleared when the search changes.
 
 ## Mouse
 
 - Click a thumbnail to open it.
+- Ctrl+click a thumbnail to mark or unmark it. Shift+click marks every thumbnail between the selection and the one clicked.
+- The bar that appears while screenshots are marked can also be clicked.
 - On an open screenshot, hover to show the detected lines, click a line to copy it, or drag a rectangle to copy every line it intersects.
 
 ## Settings
