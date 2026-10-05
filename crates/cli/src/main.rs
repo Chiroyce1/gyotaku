@@ -1,4 +1,5 @@
 mod indexer;
+mod platform;
 mod watch;
 
 use std::path::{Path, PathBuf};

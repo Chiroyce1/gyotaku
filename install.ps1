@@ -49,8 +49,12 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     Write-Host 'Downloading gyotaku for Windows' -ForegroundColor White
     $zip = Join-Path $tmp "$name.zip"
+    $sum = Join-Path $tmp "$name.zip.sha256"
     Invoke-WebRequest -UseBasicParsing -Uri "$base/$name.zip" -OutFile $zip
-    $expected = ((Invoke-WebRequest -UseBasicParsing -Uri "$base/$name.zip.sha256").Content -split '\s+')[0]
+    # Saved to a file and read back as text: GitHub serves it as binary, so
+    # reading the response directly gives bytes, not the hash.
+    Invoke-WebRequest -UseBasicParsing -Uri "$base/$name.zip.sha256" -OutFile $sum
+    $expected = ((Get-Content -Raw $sum).Trim() -split '\s+')[0]
     $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash
     if ($actual -ne $expected.ToUpper()) {
         throw 'The download does not match its checksum, nothing was installed.'

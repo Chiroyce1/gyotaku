@@ -1,14 +1,12 @@
-//! The parts of onboarding and settings that aren't drawing: working out where
-//! screenshot tools save, counting what's there, and keeping the watcher
-//! running: a systemd user service or an autostart entry on Linux, the Run
-//! key on Windows.
+//! The parts of onboarding and settings that aren't drawing and don't depend
+//! on the system: which folders to offer, counting what's in them, and where
+//! the command line tool is. Starting the reader is in `platform`.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+
+use crate::platform;
 
 const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
-#[cfg(unix)]
-const SERVICE: &str = "gyotaku-watch.service";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
@@ -28,13 +26,9 @@ pub fn candidates() -> Vec<Candidate> {
         Some(d) => d.home_dir().to_path_buf(),
         None => return Vec::new(),
     };
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
 
     let mut found = Vec::new();
-    let mut add = |path: Option<PathBuf>, why: &str, tool: bool| {
-        let Some(path) = path else { return };
+    let mut add = |path: PathBuf, why: &str, tool: bool| {
         if path.is_dir() && !found.iter().any(|c: &Candidate| c.path == path) {
             found.push(Candidate {
                 path,
@@ -44,74 +38,25 @@ pub fn candidates() -> Vec<Candidate> {
         }
     };
 
-    // Where the common tools are told to save. They're all described the same
-    // way on screen, the person knows which tool they use.
-    let tool = "your screenshot tool saves here";
-    let read = |p: PathBuf| std::fs::read_to_string(p).unwrap_or_default();
-    let env_dir = |var: &str| std::env::var(var).ok().map(|v| expand(&v, &home));
-    add(env_dir("XDG_SCREENSHOTS_DIR"), tool, true);
-    add(
-        niri_folder(&read(config.join("niri/config.kdl")), &home),
-        tool,
-        true,
-    );
-    add(
-        ini_value(&read(config.join("flameshot/flameshot.ini")), "savePath")
-            .map(|v| expand(&v, &home)),
-        tool,
-        true,
-    );
-    add(
-        ini_value(&read(config.join("spectaclerc")), "imageSaveLocation")
-            .map(|v| expand(v.trim_start_matches("file://"), &home)),
-        tool,
-        true,
-    );
-    add(
-        ini_value(&read(config.join("ksnip/ksnip.conf")), "SaveDirectory")
-            .map(|v| expand(&v, &home)),
-        tool,
-        true,
-    );
-    add(env_dir("GRIM_DEFAULT_DIR"), tool, true);
-    add(env_dir("HYPRSHOT_DIR"), tool, true);
-    let pictures = gyotaku_core::pictures_dir();
-    add(
-        pictures.as_ref().map(|p| p.join("Screenshots")),
-        "where most desktops save screenshots",
-        false,
-    );
-    add(pictures, "your pictures folder", false);
-    add(Some(home.join("Desktop")), "your desktop", false);
-    found
-}
-
-/// niri's `screenshot-path "~/Pictures/Screenshots/Screenshot from %Y.png"`,
-/// minus the file name pattern.
-fn niri_folder(config: &str, home: &Path) -> Option<PathBuf> {
-    let line = config
-        .lines()
-        .map(str::trim)
-        .find(|l| l.starts_with("screenshot-path") && !l.starts_with("//"))?;
-    let value = line.split('"').nth(1)?;
-    Some(expand(value, home).parent()?.to_path_buf())
-}
-
-/// `key=value` out of an ini style file, whichever section it's in.
-fn ini_value(text: &str, key: &str) -> Option<String> {
-    text.lines().find_map(|l| {
-        let (k, v) = l.split_once('=')?;
-        (k.trim() == key && !v.trim().is_empty()).then(|| v.trim().to_owned())
-    })
-}
-
-fn expand(path: &str, home: &Path) -> PathBuf {
-    let path = path.trim().trim_matches('"');
-    match path.strip_prefix("~/") {
-        Some(rest) => home.join(rest),
-        None if path == "~" => home.to_path_buf(),
-        None => PathBuf::from(path.replace("$HOME", &home.to_string_lossy())),
+    // The tools are all described the same way on screen, the person knows
+    // which one they use.
+    for folder in platform::tool_folders(&home) {
+        add(folder, "your screenshot tool saves here", true);
     }
+    let pictures = gyotaku_core::pictures_dir();
+    if let Some(pictures) = pictures {
+        add(
+            pictures.join("Screenshots"),
+            platform::WORDS.default_folder,
+            false,
+        );
+        add(pictures, "your pictures folder", false);
+    }
+    let desktop = directories::UserDirs::new()
+        .and_then(|d| d.desktop_dir().map(Path::to_path_buf))
+        .unwrap_or_else(|| home.join("Desktop"));
+    add(desktop, "your desktop", false);
+    found
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -204,75 +149,10 @@ pub fn folder_size(dir: &Path) -> u64 {
     total
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Service {
-    Running,
-    Stopped,
-}
-
-/// Whether there's a systemd user manager to hand the watcher to. The same
-/// test sd_booted(3) does, plus the user instance's socket, since having the
-/// systemctl binary around proves nothing (containers, systemd installed but
-/// not running as init).
-#[cfg(unix)]
-fn has_systemd() -> bool {
-    Path::new("/run/systemd/system").is_dir()
-        && std::env::var_os("XDG_RUNTIME_DIR")
-            .is_some_and(|dir| Path::new(&dir).join("systemd/private").exists())
-}
-
-/// Running if the service is up, or if a `gyotaku watch` started some other
-/// way (by hand, by the autostart entry) is.
-#[cfg(unix)]
-pub fn service_status() -> Service {
-    let service = has_systemd() && systemctl(&["is-active", SERVICE]) == Some(true);
-    if service || !watcher_pids().is_empty() {
-        Service::Running
-    } else {
-        Service::Stopped
-    }
-}
-
-/// Starts the watcher and makes it start again at every login: a systemd
-/// user service where there's systemd, an XDG autostart entry anywhere else.
-/// Every desktop that follows the freedesktop specs runs those.
-#[cfg(unix)]
-pub fn start_service() -> bool {
-    if has_systemd() {
-        if install_unit().is_err() {
-            return false;
-        }
-        let _ = systemctl(&["daemon-reload"]);
-        return systemctl(&["enable", "--now", SERVICE]) == Some(true);
-    }
-    if install_autostart().is_err() {
-        return false;
-    }
-    if watcher_pids().is_empty() {
-        spawn_watcher()
-    } else {
-        true
-    }
-}
-
-#[cfg(unix)]
-pub fn stop_service() -> bool {
-    if let Some(entry) = autostart_path() {
-        let _ = std::fs::remove_file(entry);
-    }
-    if has_systemd() {
-        return systemctl(&["disable", "--now", SERVICE]) == Some(true);
-    }
-    for pid in watcher_pids() {
-        unsafe { libc::kill(pid, libc::SIGTERM) };
-    }
-    true
-}
-
-/// The command line tool, installed next to this binary by `cargo install`
-/// and by packages alike. Pointing at it directly beats hoping it's on the
-/// PATH of whatever starts it.
-fn cli_path() -> String {
+/// The command line tool, installed next to this program by the installers,
+/// `cargo install` and packages alike. Pointing at it directly beats hoping
+/// it's on the PATH of whatever starts it.
+pub fn cli_path() -> String {
     std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name(format!("gyotaku{}", std::env::consts::EXE_SUFFIX)))
@@ -280,274 +160,9 @@ fn cli_path() -> String {
         .map_or_else(|| "gyotaku".into(), |cli| cli.display().to_string())
 }
 
-/// `setsid -f` forks the watcher off into its own session, so it isn't a
-/// child of this window, doesn't die with it, and never lingers as a zombie.
-/// Busybox's setsid has no -f, so failing that it's started directly.
-#[cfg(unix)]
-fn spawn_watcher() -> bool {
-    let quiet = |c: &mut Command| {
-        c.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-    };
-    let mut detached = Command::new("setsid");
-    detached.args(["-f", &cli_path(), "watch"]);
-    quiet(&mut detached);
-    if detached.status().is_ok_and(|s| s.success()) {
-        return true;
-    }
-    let mut direct = Command::new(cli_path());
-    direct.arg("watch");
-    quiet(&mut direct);
-    direct.spawn().is_ok()
-}
-
-/// Processes running `gyotaku watch`, found by reading /proc.
-#[cfg(unix)]
-fn watcher_pids() -> Vec<i32> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let pid: i32 = entry.file_name().to_str()?.parse().ok()?;
-            let cmdline = std::fs::read(entry.path().join("cmdline")).ok()?;
-            let mut args = cmdline.split(|b| *b == 0);
-            let program = Path::new(std::str::from_utf8(args.next()?).ok()?);
-            let is_watcher = program.file_name()? == "gyotaku" && args.next()? == b"watch";
-            is_watcher.then_some(pid)
-        })
-        .collect()
-}
-
-#[cfg(unix)]
-fn autostart_path() -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".config")))?;
-    Some(config.join("autostart/gyotaku-watch.desktop"))
-}
-
-#[cfg(unix)]
-fn install_autostart() -> std::io::Result<()> {
-    let path = autostart_path().ok_or(std::io::ErrorKind::NotFound)?;
-    std::fs::create_dir_all(path.parent().expect("has a parent"))?;
-    std::fs::write(path, autostart_entry(&cli_path()))
-}
-
-#[cfg(unix)]
-fn autostart_entry(exec: &str) -> String {
-    format!(
-        "[Desktop Entry]\n\
-         Type=Application\n\
-         Name=gyotaku watcher\n\
-         Comment=Reads new screenshots so they can be searched\n\
-         Exec={exec} watch\n\
-         NoDisplay=true\n\
-         X-GNOME-Autostart-enabled=true\n"
-    )
-}
-
-/// None if systemctl couldn't be run at all, otherwise whether it succeeded.
-#[cfg(unix)]
-fn systemctl(args: &[&str]) -> Option<bool> {
-    Command::new("systemctl")
-        .arg("--user")
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .ok()
-        .map(|s| s.success())
-}
-
-#[cfg(unix)]
-fn install_unit() -> std::io::Result<()> {
-    let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) else {
-        return Err(std::io::ErrorKind::NotFound.into());
-    };
-    let unit = home.join(".config/systemd/user").join(SERVICE);
-    // Rewritten when it differs, so a service left over from an earlier
-    // install (built from source into ~/.cargo/bin, say) runs the gyotaku
-    // next to this app instead of an old or deleted one. Local tweaks belong
-    // in a drop-in (systemctl --user edit), which this never touches.
-    let wanted = unit_file(&cli_path());
-    if std::fs::read_to_string(&unit).is_ok_and(|have| have == wanted) {
-        return Ok(());
-    }
-    std::fs::create_dir_all(unit.parent().expect("has a parent"))?;
-    std::fs::write(&unit, wanted)
-}
-
-#[cfg(unix)]
-fn unit_file(exec: &str) -> String {
-    format!(
-        "[Unit]\n\
-         Description=gyotaku, reads new screenshots so they can be searched\n\
-         Documentation=https://github.com/xevrion/gyotaku\n\
-         \n\
-         [Service]\n\
-         ExecStart={exec} watch\n\
-         Restart=on-failure\n\
-         RestartSec=30\n\
-         Nice=19\n\
-         CPUSchedulingPolicy=idle\n\
-         IOSchedulingClass=idle\n\
-         MemoryHigh=400M\n\
-         \n\
-         [Install]\n\
-         WantedBy=default.target\n"
-    )
-}
-
-// Windows: the app is started at login from the Run key, hidden and ready
-// for the summon key, and it starts the watcher. The watcher holds a lock
-// while it runs, which is how it's known to be running.
-
-#[cfg(windows)]
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-#[cfg(windows)]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-
-/// reg, taskkill and the watcher are console programs. Started from a window
-/// app each would flash a console up, so they get none.
-#[cfg(windows)]
-fn hidden(program: &str) -> Command {
-    use std::os::windows::process::CommandExt as _;
-    let mut command = Command::new(program);
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    command
-}
-
-#[cfg(windows)]
-fn starts_at_login() -> bool {
-    hidden("reg")
-        .args(["query", RUN_KEY, "/v", "gyotaku"])
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-#[cfg(windows)]
-fn watcher_running() -> bool {
-    let Ok(dir) = gyotaku_core::data_dir() else {
-        return false;
-    };
-    let Ok(lock) = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(dir.join("watch.lock"))
-    else {
-        return false;
-    };
-    matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock))
-}
-
-#[cfg(windows)]
-fn spawn_watcher() -> bool {
-    use std::os::windows::process::CommandExt as _;
-    let mut watcher = hidden(&cli_path());
-    watcher
-        .arg("watch")
-        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-    watcher.spawn().is_ok()
-}
-
-// On Windows the switch in settings is "start with Windows". New screenshots
-// are read whenever gyotaku is running either way: nobody there is going to
-// start a watcher from a terminal.
-
-#[cfg(windows)]
-pub fn service_status() -> Service {
-    if starts_at_login() {
-        Service::Running
-    } else {
-        Service::Stopped
-    }
-}
-
-#[cfg(windows)]
-pub fn start_service() -> bool {
-    let Ok(app) = std::env::current_exe() else {
-        return false;
-    };
-    let command = format!("\"{}\" --background", app.display());
-    let registered = hidden("reg")
-        .args([
-            "add", RUN_KEY, "/v", "gyotaku", "/t", "REG_SZ", "/d", &command, "/f",
-        ])
-        .status()
-        .is_ok_and(|s| s.success());
-    start_watcher();
-    registered
-}
-
-#[cfg(windows)]
-pub fn stop_service() -> bool {
-    hidden("reg")
-        .args(["delete", RUN_KEY, "/v", "gyotaku", "/f"])
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-#[cfg(windows)]
-pub fn start_watcher() {
-    if !watcher_running() {
-        spawn_watcher();
-    }
-}
-
-/// Every start of the app (at sign-in, or from the Start menu) brings the
-/// watcher up, once there's a config saying what to read. Off the main
-/// thread, since starting a process takes a moment.
-#[cfg(windows)]
-pub fn resume_background() {
-    std::thread::spawn(|| {
-        if matches!(gyotaku_core::Config::load(), Ok(Some(_))) {
-            start_watcher();
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn niri_path_loses_its_file_pattern() {
-        let config = r#"
-            // screenshot-path "~/old/%Y.png"
-            screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d.png"
-        "#;
-        let home = Path::new("/home/me");
-        assert_eq!(
-            niri_folder(config, home),
-            Some("/home/me/Pictures/Screenshots".into())
-        );
-        assert_eq!(niri_folder("binds {}", home), None);
-    }
-
-    #[test]
-    fn ini_values_are_found_in_any_section() {
-        let ini = "[General]\nsavePath=/home/me/shots\nother=1\n";
-        assert_eq!(ini_value(ini, "savePath"), Some("/home/me/shots".into()));
-        assert_eq!(ini_value("[General]\nsavePath=\n", "savePath"), None);
-    }
-
-    #[test]
-    fn home_is_expanded() {
-        let home = Path::new("/home/me");
-        assert_eq!(expand("~/a", home), PathBuf::from("/home/me/a"));
-        assert_eq!(expand("$HOME/b", home), PathBuf::from("/home/me/b"));
-        assert_eq!(expand("/abs", home), PathBuf::from("/abs"));
-    }
 
     #[test]
     fn nested_folders_are_covered_by_their_parent() {
@@ -608,21 +223,5 @@ mod tests {
         ] {
             assert!(!looks_like_a_screenshot(name), "{name}");
         }
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn the_autostart_entry_runs_the_watcher_hidden() {
-        let entry = autostart_entry("/usr/bin/gyotaku");
-        assert!(entry.contains("Exec=/usr/bin/gyotaku watch"));
-        assert!(entry.contains("NoDisplay=true"));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn the_unit_runs_the_watcher_at_idle() {
-        let unit = unit_file("/x/gyotaku");
-        assert!(unit.contains("ExecStart=/x/gyotaku watch"));
-        assert!(unit.contains("CPUSchedulingPolicy=idle"));
     }
 }

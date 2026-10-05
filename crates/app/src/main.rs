@@ -3,12 +3,10 @@
 
 mod app;
 mod grid;
-#[cfg(windows)]
-mod hotkey;
 mod images;
 mod input;
 mod keys;
-mod resident;
+mod platform;
 mod setup;
 mod spring;
 mod stats;
@@ -19,8 +17,8 @@ use std::borrow::Cow;
 use anyhow::Result;
 use futures::StreamExt as _;
 use gpui::{
-    App, AppContext, Bounds, Entity, Global, QuitMode, Size, TitlebarOptions,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, px, size,
+    App, AppContext, Bounds, Entity, Global, QuitMode, Size, TitlebarOptions, WindowBounds,
+    WindowOptions, px, size,
 };
 use gpui_platform::application;
 use gyotaku_core::Index;
@@ -39,25 +37,24 @@ fn main() -> Result<()> {
         .format_timestamp_millis()
         .init();
     let args: Vec<String> = std::env::args().collect();
-    // --window skips the overlay and opens an ordinary window, for desktops
-    // without layer shell (GNOME) or just for poking at it. --once exits when
-    // the window closes instead of staying resident.
+    // --window skips the launcher window and opens an ordinary one, for
+    // poking at it. --once exits when the window closes instead of staying
+    // resident. --background starts resident with no window, which is how
+    // it's started at sign-in on Windows, ready for the summon key.
     let windowed = args.iter().any(|a| a == "--window");
     let once = args.iter().any(|a| a == "--once");
-    // --background starts resident without a window, which is how it's
-    // started at login on Windows, to be ready for the summon key.
     let background = args.iter().any(|a| a == "--background");
 
-    let address = resident::address();
-    if !once && resident::wake(&address) {
+    let address = platform::resident_address();
+    if !once && platform::wake(&address) {
         return Ok(());
     }
     let listener = if once {
         None
     } else {
-        resident::listen(&address)
+        platform::listen(&address)
     };
-    keep_big_allocations_off_the_heap();
+    platform::tune_allocator();
 
     let quit_mode = if listener.is_some() {
         QuitMode::Explicit
@@ -79,10 +76,7 @@ fn main() -> Result<()> {
             if !(background && listener.is_some()) {
                 toggle(cx);
             }
-            // Started at login, the watcher comes up with it, unless one
-            // already is.
-            #[cfg(windows)]
-            setup::resume_background();
+            platform::on_launch();
 
             // The view lives on for next time, but most of its thumbnails
             // don't need to. Hand the freed pages back so an idle gyotaku
@@ -91,19 +85,15 @@ fn main() -> Result<()> {
                 if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
                     view.update(cx, |view, cx| view.hidden(cx));
                 }
-                release_memory();
+                platform::release_memory();
             })
             .detach();
 
+            // A second launch, or the summon key where the app registers one
+            // itself, knocks; each knock toggles the window.
             let Some(listener) = listener else { return };
             let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
-            #[cfg(windows)]
-            {
-                let key = config.keys.get("summon").map_or(hotkey::DEFAULT, |k| k);
-                if !hotkey::register(key, knocks.clone(), cx) {
-                    log::warn!("couldn't register {key}, another program may be using it");
-                }
-            }
+            platform::register_summon(knocks.clone(), &config.keys, cx);
             std::thread::spawn(move || {
                 for stream in listener.incoming() {
                     if stream.is_ok() && knocks.unbounded_send(()).is_err() {
@@ -145,7 +135,8 @@ fn toggle(cx: &mut App) {
     summon(cx);
 }
 
-/// Opens the window if it isn't open.
+/// Opens the window if it isn't open: the system's launcher window where it
+/// has one, an ordinary window otherwise.
 pub(crate) fn summon(cx: &mut App) {
     if !cx.windows().is_empty() {
         return;
@@ -155,33 +146,13 @@ pub(crate) fn summon(cx: &mut App) {
     let window = if windowed {
         None
     } else {
-        open_overlay(size, cx)
+        platform::open_launcher(size, cx, |window, cx| root(true, window, cx))
     };
     let window = window.unwrap_or_else(|| open_window(size, cx));
     let _ = window.update(cx, |view, window, cx| {
         window.focus(&gpui::Focusable::focus_handle(view, cx), cx);
         cx.activate(true);
     });
-}
-
-fn release_memory() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    unsafe {
-        libc::malloc_trim(0);
-    }
-}
-
-/// A decoded thumbnail is ~0.5 MB. glibc normally raises its mmap threshold
-/// after the first few of those are freed, and from then on puts them on the
-/// heap, where scrolling through thousands of them fragments it for good.
-/// Pinning the threshold keeps every image in its own mapping that goes back
-/// to the kernel when freed: paging through 80 screens peaked at ~140 MB with
-/// this and ~250 MB without.
-fn keep_big_allocations_off_the_heap() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    unsafe {
-        libc::mallopt(libc::M_MMAP_THRESHOLD, 128 * 1024);
-    }
 }
 
 /// A generous palette, but never more than most of the screen.
@@ -211,53 +182,6 @@ fn root(floating: bool, window: &mut gpui::Window, cx: &mut App) -> Entity<Gyota
     let view = cx.new(|cx| Gyotaku::new(index, floating, window, cx));
     cx.set_global(Kept(view.clone()));
     view
-}
-
-/// On Windows, a borderless window that stays on top and out of the taskbar,
-/// centred on the screen, the way a launcher sits.
-#[cfg(windows)]
-fn open_overlay(size: Size<gpui::Pixels>, cx: &mut App) -> Option<gpui::WindowHandle<Gyotaku>> {
-    cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size, cx))),
-            app_id: Some("gyotaku".into()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::PopUp,
-            ..Default::default()
-        },
-        |window, cx| root(true, window, cx),
-    )
-    .ok()
-}
-
-/// On Wayland compositors with layer shell (niri, sway, Hyprland, KDE) the
-/// window floats above everything like a launcher, with no title bar and all
-/// keyboard input going to it.
-#[cfg(not(windows))]
-fn open_overlay(size: Size<gpui::Pixels>, cx: &mut App) -> Option<gpui::WindowHandle<Gyotaku>> {
-    use gpui::layer_shell::*;
-    std::env::var_os("WAYLAND_DISPLAY")?;
-    cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-                Default::default(),
-                size,
-            ))),
-            app_id: Some("gyotaku".into()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: "gyotaku".into(),
-                layer: Layer::Overlay,
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        |window, cx| root(true, window, cx),
-    )
-    .ok()
 }
 
 fn open_window(size: Size<gpui::Pixels>, cx: &mut App) -> gpui::WindowHandle<Gyotaku> {

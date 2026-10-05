@@ -6,6 +6,8 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
 use gyotaku_core::{Index, Shot};
+
+use crate::platform;
 use gyotaku_ocr::Ocr;
 use image::RgbImage;
 use image::codecs::jpeg::JpegEncoder;
@@ -55,7 +57,7 @@ impl Indexer {
             let thumb = gyotaku_core::thumb_path(path)?;
             if !thumb.exists() && self.index.is_visible(path)? {
                 write_thumbnail(&gyotaku_ocr::load_image(path)?, &thumb)?;
-                release_memory();
+                platform::release_memory();
                 return Ok(Outcome::Thumbnail);
             }
             return Ok(Outcome::Unchanged);
@@ -85,7 +87,7 @@ impl Indexer {
         self.index.insert(&shot, &lines)?;
 
         drop(img);
-        release_memory();
+        platform::release_memory();
         Ok(Outcome::Indexed {
             lines: lines.len(),
             took: t.elapsed(),
@@ -201,35 +203,4 @@ fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<()> {
     drop(out);
     fs::rename(&tmp, dest)?;
     Ok(())
-}
-
-/// glibc keeps freed memory around for reuse. Right after OCR that's a couple
-/// hundred MB of activations and decoded pixels nobody needs until the next
-/// screenshot, which for the watcher can be hours away.
-fn release_memory() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    unsafe {
-        libc::malloc_trim(0);
-    }
-}
-
-/// Drops the process to idle CPU and IO priority, so indexing only ever runs
-/// on time nothing else wants. Failing is fine, it just runs at normal priority.
-pub fn become_idle() {
-    #[cfg(target_os = "linux")]
-    unsafe {
-        let param = libc::sched_param { sched_priority: 0 };
-        libc::sched_setscheduler(0, libc::SCHED_IDLE, &param);
-        // ioprio_set(IOPRIO_WHO_PROCESS, self, IOPRIO_CLASS_IDLE << 13). libc
-        // has no wrapper for it.
-        libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
-    }
-    // Background mode lowers cpu, disk and memory priority all at once.
-    #[cfg(windows)]
-    unsafe {
-        use windows_sys::Win32::System::Threading::{
-            GetCurrentProcess, PROCESS_MODE_BACKGROUND_BEGIN, SetPriorityClass,
-        };
-        SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN);
-    }
 }

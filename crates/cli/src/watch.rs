@@ -10,6 +10,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use gyotaku_core::Config;
 
 use crate::indexer::{self, Indexer, Outcome};
+use crate::platform;
 
 // How long a file has to sit untouched before it gets read. Some tools write a
 // screenshot in several passes, and reading a half written png just fails.
@@ -33,7 +34,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         eprintln!("another gyotaku watch is already running, leaving it to that one");
         return Ok(());
     };
-    indexer::become_idle();
+    platform::become_idle();
     let config_path = Config::path()?;
     let config = Config::load_or_default();
     let mut threads_now = threads.unwrap_or(config.threads);
@@ -187,9 +188,7 @@ fn only_watcher() -> Result<Option<std::fs::File>> {
 const BATTERY_PACE: Duration = Duration::from_secs(3);
 
 /// Whether the machine is running on battery, looked up at most every 30
-/// seconds. Any laptop's kernel lists its batteries under
-/// /sys/class/power_supply, and one that says Discharging means unplugged.
-/// Desktops have none, so they're never throttled.
+/// seconds. Desktops have none, so they're never throttled.
 #[derive(Default)]
 struct Power {
     checked: Option<Instant>,
@@ -203,16 +202,7 @@ impl Power {
             .is_none_or(|t| t.elapsed() > Duration::from_secs(30))
         {
             self.checked = Some(Instant::now());
-            self.on_battery = std::fs::read_dir("/sys/class/power_supply")
-                .into_iter()
-                .flatten()
-                .flatten()
-                .any(|supply| {
-                    let read = |f: &str| {
-                        std::fs::read_to_string(supply.path().join(f)).unwrap_or_default()
-                    };
-                    read("type").trim() == "Battery" && read("status").trim() == "Discharging"
-                });
+            self.on_battery = platform::on_battery();
         }
         self.on_battery
     }

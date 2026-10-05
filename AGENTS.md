@@ -17,6 +17,13 @@ gyotaku indexes every screenshot by its OCR'd text so it can be searched. `crate
 - Never write to, move or delete a user's screenshots. The one exception is an explicit, confirmed move to the system trash (`crates/core/src/trash.rs`), which is always undoable and never deletes.
 - Keep it generic. No code path or text assumes one desktop, compositor, distro or gpu vendor.
 
+## Operating systems
+
+- Everything that differs between systems lives in a `platform` module: `crates/app/src/platform/` and `crates/cli/src/platform/`, one file per system (`linux.rs`, `windows.rs`) providing the same items, re-exported from `mod.rs`. `crates/core/src/trash/` follows the same pattern.
+- No `#[cfg(target_os)]`, `#[cfg(windows)]` or `cfg!(windows)` outside those modules. A behaviour that differs gets a function in the platform interface; wording that differs goes in `platform::WORDS`.
+- Porting to another system means adding one file per `platform` module. `mod.rs` has a `compile_error!` for unsupported systems, so the build names what's missing.
+- Windows is built, tested and photographed in CI (`.github/workflows/windows.yml`), since nobody develops on it. Check the `windows-screens` artifact after UI changes.
+
 ## Rust
 
 - Rust 1.95, pinned in `rust-toolchain.toml` because gpui needs `std::hint::cold_path`.

@@ -15,7 +15,8 @@ use gyotaku_core::{Config, ThemeChoice, tidy};
 
 use super::{Gyotaku, Page, hint, thousands};
 use crate::keys::{self, SHORTCUTS};
-use crate::setup::{self, Candidate, Counts, Service};
+use crate::platform::{self, Service};
+use crate::setup::{self, Candidate, Counts};
 use crate::theme::Theme;
 
 #[derive(Clone, Copy)]
@@ -116,7 +117,7 @@ impl Gyotaku {
         self.page = Page::Settings(Settings {
             config,
             cursor: 0,
-            service: setup::service_status(),
+            service: platform::service_status(),
             shots,
             sizes: None,
             recording: None,
@@ -337,23 +338,21 @@ impl Gyotaku {
             return;
         }
         self.theme_choice = config.theme;
-        if background && setup::service_status() != Service::Running {
-            cx.background_executor()
-                .spawn(async { setup::start_service() })
-                .detach();
-        }
-        #[cfg(windows)]
-        if !background {
-            cx.background_executor()
-                .spawn(async { setup::start_watcher() })
-                .detach();
+        if background {
+            if platform::service_status() != Service::Running {
+                cx.background_executor()
+                    .spawn(async { platform::start_service() })
+                    .detach();
+            }
+        } else {
+            platform::keep_reading();
         }
         self.leave_panel(window, cx);
         self.flash(
-            if background || cfg!(windows) {
+            if background {
                 "reading your screenshots, they show up here as they're read"
             } else {
-                "saved, run gyotaku watch to start reading"
+                platform::WORDS.chose_no
             },
             cx,
         );
@@ -528,11 +527,11 @@ impl Gyotaku {
                 .background_executor()
                 .spawn(async move {
                     if on {
-                        setup::start_service()
+                        platform::start_service()
                     } else {
-                        setup::stop_service()
+                        platform::stop_service()
                     };
-                    setup::service_status()
+                    platform::service_status()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -755,31 +754,15 @@ impl Gyotaku {
                 }
                 Row::Background => {
                     list.push(section("reading"));
-                    let (on, status): (bool, SharedString) = match service {
-                        Service::Running if cfg!(windows) => {
-                            (true, "on, waits hidden after you sign in".into())
-                        }
-                        Service::Running => (
-                            true,
-                            format!("running, {} searchable", thousands(self.searchable)).into(),
-                        ),
-                        Service::Stopped if cfg!(windows) => {
-                            (false, "off, open it from the Start menu".into())
-                        }
-                        Service::Stopped => (false, "off, new screenshots won't be read".into()),
-                    };
-                    let label = if cfg!(windows) {
-                        "start with windows"
-                    } else {
-                        "read new screenshots in the background"
-                    };
+                    let on = service == Service::Running;
+                    let status = platform::background_status(service, self.searchable);
                     self.row(ix, selected, theme, cx, Key::Enter)
                         .child(
                             div()
                                 .flex_1()
                                 .flex()
                                 .flex_col()
-                                .child(label)
+                                .child(platform::WORDS.background_setting)
                                 .child(div().text_xs().text_color(theme.muted).child(status)),
                         )
                         .child(switch("background", on, theme))
@@ -1017,29 +1000,8 @@ impl Gyotaku {
                 )
             }
             Step::Background => {
-                let options = if cfg!(windows) {
-                    [
-                        (
-                            "yes, start with windows",
-                            "it waits hidden after you sign in, ready for alt shift s, and reads each new screenshot about a second after you take it",
-                        ),
-                        (
-                            "no, only when i open it",
-                            "open it from the Start menu, it reads new screenshots while it's running",
-                        ),
-                    ]
-                } else {
-                    [
-                        (
-                            "yes, start it now and at every login",
-                            "a small background process reads each new screenshot about a second after you take it, at idle priority",
-                        ),
-                        (
-                            "no, i'll run gyotaku watch myself",
-                            "nothing runs in the background",
-                        ),
-                    ]
-                };
+                let words = &platform::WORDS;
+                let options = [words.background_yes, words.background_no];
                 let rows =
                     options
                         .iter()
@@ -1055,19 +1017,7 @@ impl Gyotaku {
                                 .into_any_element()
                         })
                         .collect();
-                if cfg!(windows) {
-                    (
-                        "start with windows?",
-                        "so it's ready the moment you need it, and a screenshot you take now is searchable a second later.",
-                        rows,
-                    )
-                } else {
-                    (
-                        "keep reading new ones?",
-                        "so a screenshot you take now is searchable a second later.",
-                        rows,
-                    )
-                }
+                (words.background_title, words.background_body, rows)
             }
         };
 

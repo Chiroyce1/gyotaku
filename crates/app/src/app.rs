@@ -2,20 +2,18 @@ mod settings;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use std::sync::Arc;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context,
-    CursorStyle, ElementId, Entity, FocusHandle, Focusable, FontWeight, Hsla, ListAlignment,
-    ListOffset, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder,
-    Pixels, Point, RenderImage, SharedString, Subscription, Window, actions, canvas, div,
-    ease_out_quint, img, list, point, prelude::*, px, size,
+    Animation, AnimationExt as _, AnyElement, App, Bounds, ClickEvent, Context, CursorStyle,
+    ElementId, Entity, FocusHandle, Focusable, FontWeight, Hsla, ListAlignment, ListOffset,
+    ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
+    Point, RenderImage, SharedString, Subscription, Window, actions, canvas, div, ease_out_quint,
+    img, list, point, prelude::*, px, size,
 };
 use gyotaku_core::trash::{self, Trashed};
 use gyotaku_core::{Config, Hit, Index, Line, Rect, Shot, ThemeChoice};
@@ -24,6 +22,7 @@ use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
 use crate::input::{Changed, TextInput};
 use crate::keys;
+use crate::platform;
 use crate::spring::Spring;
 use crate::stats::FrameStats;
 use crate::theme::Theme;
@@ -138,7 +137,6 @@ pub struct Gyotaku {
     /// Drawn as a floating panel (layer shell) rather than filling a window.
     floating: bool,
     appearance: Option<Subscription>,
-    #[cfg(windows)]
     activation: Option<Subscription>,
     /// Scroll the selection back into view after the next layout, because
     /// relaying out the list loses its scroll position.
@@ -284,7 +282,6 @@ impl Gyotaku {
             last_frame: Instant::now(),
             floating,
             appearance: None,
-            #[cfg(windows)]
             activation: None,
             reveal_selected: false,
             page: Page::Search,
@@ -327,17 +324,15 @@ impl Gyotaku {
         self.last_frame = Instant::now();
         self.visible = true;
         self.software = window.gpu_specs().is_some_and(|g| g.is_software_emulated);
-        // A launcher on Windows stays on top of everything, so clicking away
-        // from it has to put it away, like the Start menu does. On Linux the
-        // compositor takes care of that.
-        #[cfg(windows)]
-        if self.floating {
-            self.activation = Some(cx.observe_window_activation(window, |_, window, _| {
+        // Where the launcher window stays on top of everything, clicking away
+        // from it has to put it away, like a start menu does.
+        self.activation = (self.floating && platform::hides_when_inactive()).then(|| {
+            cx.observe_window_activation(window, |_, window, _| {
                 if !window.is_window_active() {
                     window.remove_window();
                 }
-            }));
-        }
+            })
+        });
     }
 
     /// Thumbnails finish decoding one at a time, a page of them within a few
@@ -1056,7 +1051,7 @@ impl Gyotaku {
             .map(|l| l.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        copy_text(&text, cx);
+        platform::copy_text(&text, cx);
         let what = if lines.len() == 1 {
             "copied 1 line".into()
         } else {
@@ -1070,12 +1065,10 @@ impl Gyotaku {
             return;
         };
         let path = hit.path.clone();
-        let message = if copy_image(&path, cx) {
+        let message = if platform::copy_image(&path, cx) {
             "copied the image"
-        } else if cfg!(windows) {
-            "couldn't copy the image"
         } else {
-            "couldn't copy the image, is wl-copy installed?"
+            platform::WORDS.copy_image_failed
         };
         self.flash(message, cx);
     }
@@ -2225,7 +2218,7 @@ fn placeholder(searchable: usize) -> SharedString {
     }
 }
 
-fn thousands(n: usize) -> String {
+pub(crate) fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
@@ -2245,77 +2238,6 @@ fn taken_at(mtime: i64) -> String {
                 .to_string()
         })
         .unwrap_or_default()
-}
-
-// A Wayland clipboard is served by the app that set it, so text copied with
-// gpui's own clipboard vanishes the moment this window closes. wl-copy forks
-// a tiny process that keeps serving it, which is what makes "copy, esc,
-// paste" work.
-fn copy_text(text: &str, cx: &mut App) {
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() && pipe("wl-copy", &[], text.as_bytes()) {
-        return;
-    }
-    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
-}
-
-#[cfg(not(windows))]
-fn copy_image(path: &Path, _: &mut App) -> bool {
-    let mime = match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        _ => "image/png",
-    };
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        pipe("wl-copy", &["--type", mime], &bytes)
-    } else {
-        pipe("xclip", &["-selection", "clipboard", "-t", mime], &bytes)
-    }
-}
-
-/// The Windows clipboard keeps its own copy, so it outlives this window.
-#[cfg(windows)]
-fn copy_image(path: &Path, cx: &mut App) -> bool {
-    use gpui::{Image, ImageFormat};
-    let format = match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("jpg" | "jpeg") => ImageFormat::Jpeg,
-        Some("webp") => ImageFormat::Webp,
-        _ => ImageFormat::Png,
-    };
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(format, bytes)));
-    true
-}
-
-fn pipe(program: &str, args: &[&str], input: &[u8]) -> bool {
-    let Ok(mut child) = Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    let wrote = child
-        .stdin
-        .take()
-        .is_some_and(|mut stdin| stdin.write_all(input).is_ok());
-    child.wait().is_ok_and(|s| s.success()) && wrote
 }
 
 #[cfg(test)]
