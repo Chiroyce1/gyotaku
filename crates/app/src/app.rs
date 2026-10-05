@@ -153,6 +153,8 @@ pub struct Gyotaku {
     /// Drawing on the cpu (no usable gpu), see `calm`.
     software: bool,
     repaint_pending: bool,
+    /// What the reader is doing, checked while there's nothing to search.
+    reader: Option<ReaderState>,
 
     /// Shots marked for the trash, by id so they survive a refresh, with
     /// when they were marked so the change can animate.
@@ -291,6 +293,7 @@ impl Gyotaku {
             stats: FrameStats::new(),
             software: false,
             repaint_pending: false,
+            reader: (searchable == 0).then(reader_state),
             marked: HashMap::new(),
             unmarking: HashMap::new(),
             anchor: None,
@@ -366,6 +369,15 @@ impl Gyotaku {
     fn tick(&mut self, cx: &mut Context<Self>) {
         if !self.visible || !matches!(self.page, Page::Search) {
             return;
+        }
+        // While there's nothing to search, the empty screen says what the
+        // reader is up to, so it has to keep up with it.
+        if self.searchable == 0 {
+            let reader = Some(reader_state());
+            if reader != self.reader {
+                self.reader = reader;
+                cx.notify();
+            }
         }
         let searchable = self.index.visible_len().unwrap_or(self.searchable);
         if searchable != self.searchable {
@@ -1509,15 +1521,37 @@ impl Gyotaku {
     }
 
     fn render_empty(&self, theme: Theme, cx: &App) -> impl IntoElement + use<> {
+        let settings = keys::shown("settings", cx);
         let (title, body): (SharedString, SharedString) = if self.searchable == 0 {
-            (
-                "nothing read yet".into(),
-                format!(
-                    "screenshots show up here as they're read. if nothing happens, check settings ({})",
-                    keys::shown("settings", cx)
-                )
-                .into(),
-            )
+            match &self.reader {
+                Some(ReaderState {
+                    running: true,
+                    line,
+                }) if line == "up to date" => (
+                    "no screenshots here yet".into(),
+                    format!(
+                        "the folders you picked have none. take one, or add a folder in settings ({settings})"
+                    )
+                    .into(),
+                ),
+                Some(ReaderState {
+                    running: true,
+                    line,
+                }) => ("reading your screenshots".into(), line.clone().into()),
+                Some(ReaderState {
+                    running: false,
+                    line,
+                }) if line.starts_with("couldn't") || line.starts_with("stopped") => {
+                    ("the reader stopped".into(), line.clone().into())
+                }
+                _ => (
+                    "nothing read yet".into(),
+                    format!(
+                        "nothing is reading your screenshots right now. turn it on in settings ({settings})"
+                    )
+                    .into(),
+                ),
+            }
         } else {
             (
                 format!("nothing says \u{201c}{}\u{201d}", self.query.trim()).into(),
@@ -2215,6 +2249,20 @@ fn placeholder(searchable: usize) -> SharedString {
         0 => "nothing to search yet".into(),
         1 => "search 1 screenshot".into(),
         n => format!("search {} screenshots", thousands(n)).into(),
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct ReaderState {
+    running: bool,
+    /// What it last said it was doing, see `gyotaku_core::status`.
+    line: String,
+}
+
+fn reader_state() -> ReaderState {
+    ReaderState {
+        running: gyotaku_core::status::reader_running(),
+        line: gyotaku_core::status::get().unwrap_or_default(),
     }
 }
 

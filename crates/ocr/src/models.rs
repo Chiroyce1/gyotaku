@@ -7,19 +7,30 @@ use sha2::{Digest, Sha256};
 
 pub struct Model {
     pub file: &'static str,
-    url: &'static str,
+    /// Tried in order until one gives the file with the right hash.
+    urls: [&'static str; 2],
     sha256: &'static str,
 }
 
-// PP-OCRv6 exported to onnx by the RapidOCR folks. Same files their python
-// package downloads, pinned by hash so a changed upstream file fails loudly
-// instead of quietly reading text differently.
-macro_rules! url {
-    ($rest:literal) => {
-        concat!(
-            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6",
-            $rest
-        )
+// PP-OCRv6 exported to onnx by the RapidOCR folks, pinned by hash so a
+// changed file fails loudly instead of quietly reading text differently.
+// Fetched from this project's own GitHub release first (fast everywhere,
+// rarely blocked), then from ModelScope, where RapidOCR publishes them (the
+// same files their python package downloads).
+macro_rules! urls {
+    ($dir:literal, $file:literal) => {
+        [
+            concat!(
+                "https://github.com/xevrion/gyotaku/releases/download/models-v1/",
+                $file
+            ),
+            concat!(
+                "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/",
+                $dir,
+                "/",
+                $file
+            ),
+        ]
     };
 }
 
@@ -30,13 +41,13 @@ macro_rules! url {
 // Numbers are in notes.md.
 pub const DET: Model = Model {
     file: "PP-OCRv6_det_tiny.onnx",
-    url: url!("/det/PP-OCRv6_det_tiny.onnx"),
+    urls: urls!("det", "PP-OCRv6_det_tiny.onnx"),
     sha256: "f42c0fbd294d95eac1a550e131b277dac97462c8025fa4b6c3cec1b7894bd3d5",
 };
 
 pub const REC: Model = Model {
     file: "PP-OCRv6_rec_small.onnx",
-    url: url!("/rec/PP-OCRv6_rec_small.onnx"),
+    urls: urls!("rec", "PP-OCRv6_rec_small.onnx"),
     sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
 };
 
@@ -106,9 +117,20 @@ pub fn ensure(model: &Model) -> Result<PathBuf> {
         return Ok(path);
     }
     eprintln!("downloading {} (first run only)", model.file);
-    let bytes = fetch(model.url, model.sha256)?;
-    write_atomically(&path, &bytes)?;
-    Ok(path)
+    let mut failures = Vec::new();
+    for url in model.urls {
+        match fetch(url, model.sha256) {
+            Ok(bytes) => {
+                write_atomically(&path, &bytes)?;
+                return Ok(path);
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                failures.push(format!("{e:#}"));
+            }
+        }
+    }
+    bail!("couldn't download {}: {}", model.file, failures.join("; "))
 }
 
 /// The ONNX Runtime library to load. ORT_DYLIB_PATH wins if it's set, which

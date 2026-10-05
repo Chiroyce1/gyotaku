@@ -1,5 +1,6 @@
 mod config;
 mod index;
+pub mod status;
 pub mod trash;
 
 use std::path::{Path, PathBuf};

@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use notify::event::{AccessKind, AccessMode, ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
-use gyotaku_core::Config;
+use gyotaku_core::{Config, status};
 
 use crate::indexer::{self, Indexer, Outcome};
 use crate::platform;
@@ -40,8 +40,16 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     let mut threads_now = threads.unwrap_or(config.threads);
     let mut folders = fixed.clone().unwrap_or(config.folders);
 
+    status::set("getting the text reader ready, the first time this downloads 22 MB");
+    let indexer = match Indexer::new(threads_now) {
+        Ok(indexer) => indexer,
+        Err(e) => {
+            status::set(&format!("couldn't get the text reader ready: {e:#}"));
+            return Err(e);
+        }
+    };
     let mut w = Watch {
-        indexer: Indexer::new(threads_now)?,
+        indexer,
         pending: HashMap::new(),
         leaving: HashMap::new(),
     };
@@ -66,6 +74,13 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders).into();
     let mut caught_up = backlog.is_empty();
     let mut power = Power::default();
+    // How far through the backlog, for the window: (done, of).
+    let mut progress = (0, backlog.len());
+    status::set(if caught_up {
+        "up to date"
+    } else {
+        "reading your screenshots"
+    });
 
     loop {
         let mut config_changed = false;
@@ -151,8 +166,13 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
 
         if let Some(path) = backlog.pop_front() {
             index(&mut w.indexer, &path);
+            progress.0 += 1;
+            progress.1 = progress.1.max(progress.0 + backlog.len());
+            status::set(&format!("reading {} of {}", progress.0, progress.1));
         } else if !caught_up {
             caught_up = true;
+            progress = (0, 0);
+            status::set("up to date");
             eprintln!(
                 "caught up, {} screenshots searchable",
                 w.indexer.index.visible_len()?
@@ -174,14 +194,21 @@ fn only_watcher() -> Result<Option<std::fs::File>> {
         .truncate(false)
         .write(true)
         .open(dir.join("watch.lock"))?;
-    match lock.try_lock() {
-        Ok(()) => {
-            std::fs::write(dir.join("watch.pid"), std::process::id().to_string())?;
-            Ok(Some(lock))
+    // The window takes the lock for an instant to check whether a reader is
+    // running, so one failed try isn't proof another reader exists.
+    for _ in 0..5 {
+        match lock.try_lock() {
+            Ok(()) => {
+                std::fs::write(dir.join("watch.pid"), std::process::id().to_string())?;
+                return Ok(Some(lock));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                std::thread::sleep(Duration::from_millis(200))
+            }
+            Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
         }
-        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
     }
+    Ok(None)
 }
 
 // On battery, one old screenshot every few seconds instead of flat out.

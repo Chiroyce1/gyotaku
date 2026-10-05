@@ -86,10 +86,13 @@ jobs:
           name: gyotaku-windows-x64
           path: dist/gyotaku
           if-no-files-found: error
-      # Opens the real window on the runner's desktop and photographs it:
-      # the grid, a search, settings, and the summon key bringing it back.
-      # The runner draws with WARP (software Direct3D), so this also covers
-      # machines without a usable GPU.
+      # Runs it the way a person does: a config saying which folder to read,
+      # and nothing else. No models, no index. The app has to start the
+      # hidden reader itself, which downloads the models and reads the
+      # folder, and the screenshot has to turn up in the window. Then the
+      # window is photographed: the grid, a search, settings, and the summon
+      # key bringing it back. The runner draws with WARP (software Direct3D),
+      # so this also covers machines without a usable GPU.
       - name: open the window
         shell: pwsh
         run: |
@@ -106,14 +109,31 @@ jobs:
             if (-not (Get-Process gyotaku-app -ErrorAction SilentlyContinue)) { throw 'gyotaku-app is not running' }
           }
 
+          $data = Join-Path $env:APPDATA 'gyotaku\data'
+          Remove-Item -Recurse -Force $data -ErrorAction SilentlyContinue
           $shots = (Resolve-Path tests\fixtures).Path
           $cfg = Join-Path $env:APPDATA 'gyotaku\config'
           New-Item -ItemType Directory -Force $cfg | Out-Null
           "folders = ['$shots']`ntheme = 'dark'`nthreads = 2" | Set-Content (Join-Path $cfg 'config.toml')
-          .\dist\gyotaku\gyotaku.exe index $shots
 
           Start-Process .\dist\gyotaku\gyotaku-app.exe
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 2
+          Alive; Shot '0-first-run'
+          $found = $false
+          foreach ($i in 1..90) {
+            $hits = & .\dist\gyotaku\gyotaku.exe search cores 2>$null
+            if ($hits) { $found = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          Get-Content (Join-Path $data 'reader.status') -ErrorAction SilentlyContinue
+          Get-Content (Join-Path $data 'watch.log') -ErrorAction SilentlyContinue
+          if (-not $found) { Shot '0-never-read'; throw 'the app never got the screenshot read' }
+
+          # The window was opened before anything was searchable; summoning
+          # it again shows the grid.
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+          [System.Windows.Forms.SendKeys]::SendWait('%+s')
+          Start-Sleep -Seconds 2
           Alive; Shot '1-open'
           [System.Windows.Forms.SendKeys]::SendWait('cores')
           Alive; Shot '2-search'
@@ -132,3 +152,37 @@ jobs:
           name: windows-screens
           path: shots
           if-no-files-found: warn
+
+  # Every build of main goes out as the rolling `dev` pre-release, so a
+  # Windows machine with nothing installed can try it with one command:
+  #   $env:GYOTAKU_CHANNEL = 'dev'; irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
+  # It's never marked latest, so ordinary installs never see it. Published
+  # even when the window test fails, since that's when trying it by hand
+  # matters most.
+  dev:
+    needs: windows
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gyotaku-windows-x64
+          path: gyotaku
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name=gyotaku-x86_64-windows
+          (cd gyotaku && zip -qr "../$name.zip" .)
+          sha256sum "$name.zip" > "$name.zip.sha256"
+          repo="$GITHUB_REPOSITORY"
+          if ! gh release view dev --repo "$repo" > /dev/null 2>&1; then
+            gh release create dev --repo "$repo" --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title "dev build" --notes "Rolling test build."
+          fi
+          gh release upload dev "$name.zip" "$name.zip.sha256" --clobber --repo "$repo"
+          gh release edit dev --repo "$repo" --prerelease --latest=false --notes \
+            "Rolling Windows test build of $GITHUB_SHA, rebuilt on every change to main. Not for everyday use: install a [release](https://github.com/$repo/releases/latest) instead."

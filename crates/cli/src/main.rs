@@ -75,7 +75,12 @@ fn main() -> Result<()> {
             index(&dirs, threads.unwrap_or(config.threads))?
         }
         Command::Watch { dirs, threads } => {
-            watch::run((!dirs.is_empty()).then_some(dirs), threads)?
+            if let Err(e) = watch::run((!dirs.is_empty()).then_some(dirs), threads) {
+                // The reader usually runs hidden, so the window is where this
+                // gets seen.
+                gyotaku_core::status::set(&format!("stopped reading: {e:#}"));
+                return Err(e);
+            }
         }
         Command::Stats => {
             let index = Index::open_default()?;

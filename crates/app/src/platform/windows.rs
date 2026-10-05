@@ -245,13 +245,34 @@ pub fn keep_reading() {
 }
 
 fn start_reader() {
-    if reader_running() {
+    if gyotaku_core::status::reader_running() {
         return;
     }
-    let _ = hidden(&crate::setup::cli_path())
+    let mut reader = hidden(&crate::setup::cli_path());
+    reader
         .arg("watch")
-        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
-        .spawn();
+        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+    // It runs with no console, so what it says goes to a file, kept short.
+    if let Some(log) = reader_log() {
+        if let Ok(err) = log.try_clone() {
+            reader.stderr(err);
+        }
+        reader.stdout(log);
+    }
+    let _ = reader.spawn();
+}
+
+/// `watch.log` next to the index, started over once it passes 1 MB.
+fn reader_log() -> Option<File> {
+    let path = gyotaku_core::data_dir().ok()?.join("watch.log");
+    let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(!big)
+        .write(true)
+        .truncate(big)
+        .open(path)
+        .ok()
 }
 
 /// reg and the reader are console programs. Started from a window app each
@@ -271,21 +292,6 @@ fn starts_at_sign_in() -> bool {
         .args(["query", RUN_KEY, "/v", "gyotaku"])
         .status()
         .is_ok_and(|s| s.success())
-}
-
-fn reader_running() -> bool {
-    let Ok(dir) = gyotaku_core::data_dir() else {
-        return false;
-    };
-    let Ok(lock) = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(dir.join("watch.lock"))
-    else {
-        return false;
-    };
-    matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock))
 }
 
 // Screenshot folders. Win+PrtScn and the Snipping Tool save to
