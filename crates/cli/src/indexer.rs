@@ -48,6 +48,20 @@ impl Indexer {
         Ok(())
     }
 
+    /// Whether reading this file would do anything: it's new or changed, or
+    /// its thumbnail went missing. Cheap (a stat and a lookup), so a library
+    /// can be sorted into what needs work before any of it starts.
+    pub fn needs_reading(&self, path: &Path) -> bool {
+        let Ok(mtime) = mtime(path) else {
+            return false;
+        };
+        if !self.index.is_current(path, mtime).unwrap_or(false) {
+            return true;
+        }
+        let thumb_missing = gyotaku_core::thumb_path(path).is_ok_and(|t| !t.exists());
+        thumb_missing && self.index.is_visible(path).unwrap_or(false)
+    }
+
     pub fn index_file(&mut self, path: &Path) -> Result<Outcome> {
         let mtime = mtime(path)?;
         if self.index.is_current(path, mtime)? {

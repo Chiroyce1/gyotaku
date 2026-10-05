@@ -71,7 +71,12 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         watcher.watch(dir, RecursiveMode::NonRecursive)?;
     }
 
-    let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders).into();
+    // Only what actually needs reading, so a restart over a library that's
+    // already read has nothing to do and nothing to report.
+    let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders)
+        .into_iter()
+        .filter(|p| w.indexer.needs_reading(p))
+        .collect();
     let mut caught_up = backlog.is_empty();
     let mut power = Power::default();
     // How far through the backlog, for the window: (done, of).
@@ -136,7 +141,9 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 watch_folder(&mut watcher, dir);
                 // Newly added folders go to the front, it's what was just asked for.
                 for path in indexer::scan(std::slice::from_ref(dir)).into_iter().rev() {
-                    backlog.push_front(path);
+                    if w.indexer.needs_reading(&path) {
+                        backlog.push_front(path);
+                    }
                 }
                 caught_up = false;
             }
@@ -169,7 +176,11 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             progress.0 += 1;
             progress.1 = progress.1.max(progress.0 + backlog.len());
             status::set(&format!("reading {} of {}", progress.0, progress.1));
-        } else if !caught_up {
+        }
+        // Said as soon as the last one is done: the loop goes back to waiting
+        // after this, possibly for an hour, and "reading 340 of 340" would
+        // stand that whole time.
+        if backlog.is_empty() && !caught_up {
             caught_up = true;
             progress = (0, 0);
             status::set("up to date");
