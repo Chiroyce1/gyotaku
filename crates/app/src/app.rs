@@ -138,6 +138,8 @@ pub struct Gyotaku {
     /// Drawn as a floating panel (layer shell) rather than filling a window.
     floating: bool,
     appearance: Option<Subscription>,
+    #[cfg(windows)]
+    activation: Option<Subscription>,
     /// Scroll the selection back into view after the next layout, because
     /// relaying out the list loses its scroll position.
     reveal_selected: bool,
@@ -282,6 +284,8 @@ impl Gyotaku {
             last_frame: Instant::now(),
             floating,
             appearance: None,
+            #[cfg(windows)]
+            activation: None,
             reveal_selected: false,
             page: Page::Search,
             panel_focus: cx.focus_handle(),
@@ -323,6 +327,17 @@ impl Gyotaku {
         self.last_frame = Instant::now();
         self.visible = true;
         self.software = window.gpu_specs().is_some_and(|g| g.is_software_emulated);
+        // A launcher on Windows stays on top of everything, so clicking away
+        // from it has to put it away, like the Start menu does. On Linux the
+        // compositor takes care of that.
+        #[cfg(windows)]
+        if self.floating {
+            self.activation = Some(cx.observe_window_activation(window, |_, window, _| {
+                if !window.is_window_active() {
+                    window.remove_window();
+                }
+            }));
+        }
     }
 
     /// Thumbnails finish decoding one at a time, a page of them within a few
@@ -1054,8 +1069,11 @@ impl Gyotaku {
         let Some(hit) = self.hits.get(self.selected).filter(|_| !self.on_panel()) else {
             return;
         };
-        let message = if copy_image(&hit.path) {
+        let path = hit.path.clone();
+        let message = if copy_image(&path, cx) {
             "copied the image"
+        } else if cfg!(windows) {
+            "couldn't copy the image"
         } else {
             "couldn't copy the image, is wl-copy installed?"
         };
@@ -2240,7 +2258,8 @@ fn copy_text(text: &str, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
 }
 
-fn copy_image(path: &Path) -> bool {
+#[cfg(not(windows))]
+fn copy_image(path: &Path, _: &mut App) -> bool {
     let mime = match path
         .extension()
         .and_then(|e| e.to_str())
@@ -2259,6 +2278,27 @@ fn copy_image(path: &Path) -> bool {
     } else {
         pipe("xclip", &["-selection", "clipboard", "-t", mime], &bytes)
     }
+}
+
+/// The Windows clipboard keeps its own copy, so it outlives this window.
+#[cfg(windows)]
+fn copy_image(path: &Path, cx: &mut App) -> bool {
+    use gpui::{Image, ImageFormat};
+    let format = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => ImageFormat::Jpeg,
+        Some("webp") => ImageFormat::Webp,
+        _ => ImageFormat::Png,
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(format, bytes)));
+    true
 }
 
 fn pipe(program: &str, args: &[&str], input: &[u8]) -> bool {

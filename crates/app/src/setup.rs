@@ -1,11 +1,13 @@
 //! The parts of onboarding and settings that aren't drawing: working out where
-//! screenshot tools save, counting what's there, and running the watcher as a
-//! systemd user service.
+//! screenshot tools save, counting what's there, and keeping the watcher
+//! running: a systemd user service or an autostart entry on Linux, the Run
+//! key on Windows.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
+#[cfg(unix)]
 const SERVICE: &str = "gyotaku-watch.service";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +214,7 @@ pub enum Service {
 /// test sd_booted(3) does, plus the user instance's socket, since having the
 /// systemctl binary around proves nothing (containers, systemd installed but
 /// not running as init).
+#[cfg(unix)]
 fn has_systemd() -> bool {
     Path::new("/run/systemd/system").is_dir()
         && std::env::var_os("XDG_RUNTIME_DIR")
@@ -220,6 +223,7 @@ fn has_systemd() -> bool {
 
 /// Running if the service is up, or if a `gyotaku watch` started some other
 /// way (by hand, by the autostart entry) is.
+#[cfg(unix)]
 pub fn service_status() -> Service {
     let service = has_systemd() && systemctl(&["is-active", SERVICE]) == Some(true);
     if service || !watcher_pids().is_empty() {
@@ -232,6 +236,7 @@ pub fn service_status() -> Service {
 /// Starts the watcher and makes it start again at every login: a systemd
 /// user service where there's systemd, an XDG autostart entry anywhere else.
 /// Every desktop that follows the freedesktop specs runs those.
+#[cfg(unix)]
 pub fn start_service() -> bool {
     if has_systemd() {
         if install_unit().is_err() {
@@ -250,6 +255,7 @@ pub fn start_service() -> bool {
     }
 }
 
+#[cfg(unix)]
 pub fn stop_service() -> bool {
     if let Some(entry) = autostart_path() {
         let _ = std::fs::remove_file(entry);
@@ -269,7 +275,7 @@ pub fn stop_service() -> bool {
 fn cli_path() -> String {
     std::env::current_exe()
         .ok()
-        .map(|exe| exe.with_file_name("gyotaku"))
+        .map(|exe| exe.with_file_name(format!("gyotaku{}", std::env::consts::EXE_SUFFIX)))
         .filter(|cli| cli.exists())
         .map_or_else(|| "gyotaku".into(), |cli| cli.display().to_string())
 }
@@ -277,6 +283,7 @@ fn cli_path() -> String {
 /// `setsid -f` forks the watcher off into its own session, so it isn't a
 /// child of this window, doesn't die with it, and never lingers as a zombie.
 /// Busybox's setsid has no -f, so failing that it's started directly.
+#[cfg(unix)]
 fn spawn_watcher() -> bool {
     let quiet = |c: &mut Command| {
         c.stdin(Stdio::null())
@@ -296,6 +303,7 @@ fn spawn_watcher() -> bool {
 }
 
 /// Processes running `gyotaku watch`, found by reading /proc.
+#[cfg(unix)]
 fn watcher_pids() -> Vec<i32> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return Vec::new();
@@ -313,6 +321,7 @@ fn watcher_pids() -> Vec<i32> {
         .collect()
 }
 
+#[cfg(unix)]
 fn autostart_path() -> Option<PathBuf> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -320,12 +329,14 @@ fn autostart_path() -> Option<PathBuf> {
     Some(config.join("autostart/gyotaku-watch.desktop"))
 }
 
+#[cfg(unix)]
 fn install_autostart() -> std::io::Result<()> {
     let path = autostart_path().ok_or(std::io::ErrorKind::NotFound)?;
     std::fs::create_dir_all(path.parent().expect("has a parent"))?;
     std::fs::write(path, autostart_entry(&cli_path()))
 }
 
+#[cfg(unix)]
 fn autostart_entry(exec: &str) -> String {
     format!(
         "[Desktop Entry]\n\
@@ -339,6 +350,7 @@ fn autostart_entry(exec: &str) -> String {
 }
 
 /// None if systemctl couldn't be run at all, otherwise whether it succeeded.
+#[cfg(unix)]
 fn systemctl(args: &[&str]) -> Option<bool> {
     Command::new("systemctl")
         .arg("--user")
@@ -350,6 +362,7 @@ fn systemctl(args: &[&str]) -> Option<bool> {
         .map(|s| s.success())
 }
 
+#[cfg(unix)]
 fn install_unit() -> std::io::Result<()> {
     let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) else {
         return Err(std::io::ErrorKind::NotFound.into());
@@ -362,6 +375,7 @@ fn install_unit() -> std::io::Result<()> {
     std::fs::write(&unit, unit_file(&cli_path()))
 }
 
+#[cfg(unix)]
 fn unit_file(exec: &str) -> String {
     format!(
         "[Unit]\n\
@@ -380,6 +394,119 @@ fn unit_file(exec: &str) -> String {
          [Install]\n\
          WantedBy=default.target\n"
     )
+}
+
+// Windows: the app is started at login from the Run key, hidden and ready
+// for the summon key, and it starts the watcher. The watcher holds a lock
+// while it runs, which is how it's known to be running.
+
+#[cfg(windows)]
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+/// reg, taskkill and the watcher are console programs. Started from a window
+/// app each would flash a console up, so they get none.
+#[cfg(windows)]
+fn hidden(program: &str) -> Command {
+    use std::os::windows::process::CommandExt as _;
+    let mut command = Command::new(program);
+    command
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+#[cfg(windows)]
+fn starts_at_login() -> bool {
+    hidden("reg")
+        .args(["query", RUN_KEY, "/v", "gyotaku"])
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(windows)]
+fn watcher_running() -> bool {
+    let Ok(dir) = gyotaku_core::data_dir() else {
+        return false;
+    };
+    let Ok(lock) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("watch.lock"))
+    else {
+        return false;
+    };
+    matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+}
+
+#[cfg(windows)]
+fn spawn_watcher() -> bool {
+    use std::os::windows::process::CommandExt as _;
+    let mut watcher = hidden(&cli_path());
+    watcher
+        .arg("watch")
+        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+    watcher.spawn().is_ok()
+}
+
+#[cfg(windows)]
+pub fn service_status() -> Service {
+    if watcher_running() {
+        Service::Running
+    } else {
+        Service::Stopped
+    }
+}
+
+#[cfg(windows)]
+pub fn start_service() -> bool {
+    let Ok(app) = std::env::current_exe() else {
+        return false;
+    };
+    let command = format!("\"{}\" --background", app.display());
+    let registered = hidden("reg")
+        .args([
+            "add", RUN_KEY, "/v", "gyotaku", "/t", "REG_SZ", "/d", &command, "/f",
+        ])
+        .status()
+        .is_ok_and(|s| s.success());
+    registered && (watcher_running() || spawn_watcher())
+}
+
+#[cfg(windows)]
+pub fn stop_service() -> bool {
+    let _ = hidden("reg")
+        .args(["delete", RUN_KEY, "/v", "gyotaku", "/f"])
+        .status();
+    // The pid is only trusted while the lock is held: the watcher writes it
+    // right after taking the lock, so it can't be a stale one.
+    let pid = gyotaku_core::data_dir()
+        .ok()
+        .and_then(|dir| std::fs::read_to_string(dir.join("watch.pid")).ok())
+        .and_then(|pid| pid.trim().parse::<u32>().ok());
+    if let Some(pid) = pid.filter(|_| watcher_running()) {
+        let _ = hidden("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .status();
+    }
+    !watcher_running()
+}
+
+/// Started at login, the app brings the watcher up too. Off the main
+/// thread, since asking the registry means starting a process.
+#[cfg(windows)]
+pub fn resume_background() {
+    std::thread::spawn(|| {
+        if starts_at_login() && !watcher_running() {
+            spawn_watcher();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -477,6 +604,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn the_autostart_entry_runs_the_watcher_hidden() {
         let entry = autostart_entry("/usr/bin/gyotaku");
         assert!(entry.contains("Exec=/usr/bin/gyotaku watch"));
@@ -484,6 +612,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn the_unit_runs_the_watcher_at_idle() {
         let unit = unit_file("/x/gyotaku");
         assert!(unit.contains("ExecStart=/x/gyotaku watch"));

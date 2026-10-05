@@ -1,7 +1,6 @@
-//! The desktop trash, as the freedesktop.org trash spec lays it out, so a
-//! screenshot moved there shows up in any file manager's trash and can be
-//! restored from it like anything else. Nothing here ever deletes a file:
-//! if a screenshot can't be moved to a trash, it stays where it is.
+//! The Linux desktop trash, as the freedesktop.org trash spec lays it out,
+//! so a screenshot moved there shows up in any file manager's trash and can
+//! be restored from it like anything else.
 
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions};

@@ -1,0 +1,74 @@
+name: windows
+
+# Builds, tests and packages the Windows version: a zip with both programs
+# and ONNX Runtime beside them, so it runs without Rust or any download
+# other than the OCR models on first use.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  ORT_VERSION: 1.28.2
+  ORT_SHA256: c4eedd29489d5feca21866d054638416f3655bf6b18851b3b6b85c8313e95c35
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: windows x64
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: build
+        run: cargo build --release --locked
+      - name: test
+        run: cargo test --release --locked --workspace
+      # Microsoft's own build, checked against the same hash the app pins.
+      - name: onnx runtime
+        run: |
+          curl -sSfLo ort.zip "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip"
+          echo "$ORT_SHA256  ort.zip" | sha256sum -c -
+          unzip -q -j ort.zip "onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll" -d target/release
+      - name: read a screenshot
+        run: |
+          ./target/release/gyotaku.exe ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
+      - name: package
+        run: |
+          mkdir -p dist/gyotaku
+          cp target/release/gyotaku-app.exe target/release/gyotaku.exe target/release/onnxruntime.dll dist/gyotaku/
+          cp LICENSE dist/gyotaku/LICENSE.txt
+          cp crates/app/fonts/OFL.txt dist/gyotaku/FONTS-OFL.txt
+          cp contrib/windows-readme.txt dist/gyotaku/README.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gyotaku-windows-x64
+          path: dist/gyotaku
+          if-no-files-found: error

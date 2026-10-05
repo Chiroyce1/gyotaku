@@ -29,6 +29,10 @@ struct Watch {
 /// follows the config file, so adding or removing a folder in the app takes
 /// effect here straight away, no restart.
 pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
+    let Some(_lock) = only_watcher()? else {
+        eprintln!("another gyotaku watch is already running, leaving it to that one");
+        return Ok(());
+    };
     indexer::become_idle();
     let config_path = Config::path()?;
     let config = Config::load_or_default();
@@ -153,6 +157,29 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 w.indexer.index.visible_len()?
             );
         }
+    }
+}
+
+/// One watcher at a time. A second would read every new screenshot again and
+/// fight the first over the index, so it just leaves. The lock is held for
+/// as long as this process lives and the OS drops it when it exits, however
+/// it exits. The pid goes in a file of its own, since on Windows a locked
+/// file can't even be read by anyone else.
+fn only_watcher() -> Result<Option<std::fs::File>> {
+    let dir = gyotaku_core::data_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("watch.lock"))?;
+    match lock.try_lock() {
+        Ok(()) => {
+            std::fs::write(dir.join("watch.pid"), std::process::id().to_string())?;
+            Ok(Some(lock))
+        }
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
     }
 }
 

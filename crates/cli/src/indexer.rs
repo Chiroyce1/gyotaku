@@ -207,7 +207,7 @@ fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<()> {
 /// hundred MB of activations and decoded pixels nobody needs until the next
 /// screenshot, which for the watcher can be hours away.
 fn release_memory() {
-    #[cfg(target_env = "gnu")]
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
     unsafe {
         libc::malloc_trim(0);
     }
@@ -223,5 +223,13 @@ pub fn become_idle() {
         // ioprio_set(IOPRIO_WHO_PROCESS, self, IOPRIO_CLASS_IDLE << 13). libc
         // has no wrapper for it.
         libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
+    }
+    // Background mode lowers cpu, disk and memory priority all at once.
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, PROCESS_MODE_BACKGROUND_BEGIN, SetPriorityClass,
+        };
+        SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN);
     }
 }
