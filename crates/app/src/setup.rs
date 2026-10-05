@@ -460,9 +460,13 @@ fn spawn_watcher() -> bool {
     watcher.spawn().is_ok()
 }
 
+// On Windows the switch in settings is "start with Windows". New screenshots
+// are read whenever gyotaku is running either way: nobody there is going to
+// start a watcher from a terminal.
+
 #[cfg(windows)]
 pub fn service_status() -> Service {
-    if watcher_running() {
+    if starts_at_login() {
         Service::Running
     } else {
         Service::Stopped
@@ -481,35 +485,33 @@ pub fn start_service() -> bool {
         ])
         .status()
         .is_ok_and(|s| s.success());
-    registered && (watcher_running() || spawn_watcher())
+    start_watcher();
+    registered
 }
 
 #[cfg(windows)]
 pub fn stop_service() -> bool {
-    let _ = hidden("reg")
+    hidden("reg")
         .args(["delete", RUN_KEY, "/v", "gyotaku", "/f"])
-        .status();
-    // The pid is only trusted while the lock is held: the watcher writes it
-    // right after taking the lock, so it can't be a stale one.
-    let pid = gyotaku_core::data_dir()
-        .ok()
-        .and_then(|dir| std::fs::read_to_string(dir.join("watch.pid")).ok())
-        .and_then(|pid| pid.trim().parse::<u32>().ok());
-    if let Some(pid) = pid.filter(|_| watcher_running()) {
-        let _ = hidden("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
-            .status();
-    }
-    !watcher_running()
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
-/// Started at login, the app brings the watcher up too. Off the main
-/// thread, since asking the registry means starting a process.
+#[cfg(windows)]
+pub fn start_watcher() {
+    if !watcher_running() {
+        spawn_watcher();
+    }
+}
+
+/// Every start of the app (at sign-in, or from the Start menu) brings the
+/// watcher up, once there's a config saying what to read. Off the main
+/// thread, since starting a process takes a moment.
 #[cfg(windows)]
 pub fn resume_background() {
     std::thread::spawn(|| {
-        if starts_at_login() && !watcher_running() {
-            spawn_watcher();
+        if matches!(gyotaku_core::Config::load(), Ok(Some(_))) {
+            start_watcher();
         }
     });
 }

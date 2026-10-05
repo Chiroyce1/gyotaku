@@ -342,9 +342,15 @@ impl Gyotaku {
                 .spawn(async { setup::start_service() })
                 .detach();
         }
+        #[cfg(windows)]
+        if !background {
+            cx.background_executor()
+                .spawn(async { setup::start_watcher() })
+                .detach();
+        }
         self.leave_panel(window, cx);
         self.flash(
-            if background {
+            if background || cfg!(windows) {
                 "reading your screenshots, they show up here as they're read"
             } else {
                 "saved, run gyotaku watch to start reading"
@@ -750,11 +756,22 @@ impl Gyotaku {
                 Row::Background => {
                     list.push(section("reading"));
                     let (on, status): (bool, SharedString) = match service {
+                        Service::Running if cfg!(windows) => {
+                            (true, "on, waits hidden after you sign in".into())
+                        }
                         Service::Running => (
                             true,
                             format!("running, {} searchable", thousands(self.searchable)).into(),
                         ),
+                        Service::Stopped if cfg!(windows) => {
+                            (false, "off, open it from the Start menu".into())
+                        }
                         Service::Stopped => (false, "off, new screenshots won't be read".into()),
+                    };
+                    let label = if cfg!(windows) {
+                        "start with windows"
+                    } else {
+                        "read new screenshots in the background"
                     };
                     self.row(ix, selected, theme, cx, Key::Enter)
                         .child(
@@ -762,7 +779,7 @@ impl Gyotaku {
                                 .flex_1()
                                 .flex()
                                 .flex_col()
-                                .child("read new screenshots in the background")
+                                .child(label)
                                 .child(div().text_xs().text_color(theme.muted).child(status)),
                         )
                         .child(switch("background", on, theme))
@@ -1000,16 +1017,29 @@ impl Gyotaku {
                 )
             }
             Step::Background => {
-                let options = [
-                    (
-                        "yes, start it now and at every login",
-                        "a small background process reads each new screenshot about a second after you take it, at idle priority",
-                    ),
-                    (
-                        "no, i'll run gyotaku watch myself",
-                        "nothing runs in the background",
-                    ),
-                ];
+                let options = if cfg!(windows) {
+                    [
+                        (
+                            "yes, start with windows",
+                            "it waits hidden after you sign in, ready for alt shift s, and reads each new screenshot about a second after you take it",
+                        ),
+                        (
+                            "no, only when i open it",
+                            "open it from the Start menu, it reads new screenshots while it's running",
+                        ),
+                    ]
+                } else {
+                    [
+                        (
+                            "yes, start it now and at every login",
+                            "a small background process reads each new screenshot about a second after you take it, at idle priority",
+                        ),
+                        (
+                            "no, i'll run gyotaku watch myself",
+                            "nothing runs in the background",
+                        ),
+                    ]
+                };
                 let rows =
                     options
                         .iter()
@@ -1025,11 +1055,19 @@ impl Gyotaku {
                                 .into_any_element()
                         })
                         .collect();
-                (
-                    "keep reading new ones?",
-                    "so a screenshot you take now is searchable a second later.",
-                    rows,
-                )
+                if cfg!(windows) {
+                    (
+                        "start with windows?",
+                        "so it's ready the moment you need it, and a screenshot you take now is searchable a second later.",
+                        rows,
+                    )
+                } else {
+                    (
+                        "keep reading new ones?",
+                        "so a screenshot you take now is searchable a second later.",
+                        rows,
+                    )
+                }
             }
         };
 
