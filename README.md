@@ -4,7 +4,7 @@
 
 <p align="center">
   Search every screenshot you have ever taken by the text inside it.<br>
-  Native on Linux, fully offline, and fast on any hardware, with or without a GPU.
+  Native on Linux and Windows, fully offline, and fast on any hardware, with or without a GPU.
 </p>
 
 <h4 align="center">
@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/xevrion/gyotaku/actions/workflows/ci.yml"><img src="https://github.com/xevrion/gyotaku/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="GPL-3.0 licensed" /></a>
-  <img src="https://img.shields.io/badge/platform-linux-blue.svg" alt="Linux" />
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20windows-blue.svg" alt="Linux and Windows" />
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" /></a>
 </p>
 
@@ -40,11 +40,81 @@ It also runs without a GPU, using software rendering. All figures were measured 
 
 ## Installation
 
-gyotaku currently supports Linux on x86_64. 64-bit ARM is expected to work but has not been tested. It is built from source.
+### Linux
 
-Steps 1 to 3 are verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) from a clean image of Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE Tumbleweed, weekly and whenever dependencies or the toolchain change.
+```sh
+curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh
+```
 
-### 1. Install build dependencies
+The script downloads the latest release for your machine, verifies its SHA-256 checksum and installs `gyotaku` and `gyotaku-app` to `~/.local/bin`. It needs no root access and changes nothing outside your home directory. On a first install it opens gyotaku so you can choose your screenshot folders, then shows how to add a keyboard shortcut for your desktop.
+
+Release builds run on x86_64 and ARM64 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36, Linux Mint 21, Pop!_OS 22.04 and later, as well as Kali, Arch Linux and openSUSE Tumbleweed. Anything else can [build from source](#build-from-source).
+
+### Windows
+
+Windows support is a preview. In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
+```
+
+This installs to `%LOCALAPPDATA%\Programs\gyotaku`, adds gyotaku to the Start menu and opens it. Press **Alt+Shift+S** anywhere to open or close the search window. No administrator rights are needed. Windows 10 and 11 on x64 are supported; ARM64 runs the x64 build through emulation.
+
+### macOS
+
+Not supported yet. It is on the [roadmap](#roadmap).
+
+### Keyboard shortcut (Linux)
+
+`gyotaku-app` opens the search window, and pressing the same shortcut again closes it. Bind it in your desktop's keyboard settings, using the full path `~/.local/bin/gyotaku-app`, since some desktops do not use your shell's `PATH`:
+
+| Environment | Configuration |
+|---|---|
+| GNOME | Settings > Keyboard > View and Customize Shortcuts > Custom Shortcuts > Add |
+| KDE Plasma | System Settings > Keyboard > Shortcuts > Add New > Command or Script |
+| Xfce | Settings > Keyboard > Application Shortcuts > Add |
+| Cinnamon | System Settings > Keyboard > Shortcuts > Custom Shortcuts > Add custom shortcut |
+| sway, i3 | `bindsym $mod+s exec ~/.local/bin/gyotaku-app` |
+| Hyprland | `bind = SUPER, S, exec, ~/.local/bin/gyotaku-app` |
+| niri | `Mod+S { spawn "~/.local/bin/gyotaku-app"; }` in the `binds` block |
+| Other | Any "run a command" shortcut. `gyotaku-app` can also be run from a terminal. |
+
+### First run
+
+On first launch, gyotaku asks:
+
+1. **Which folders contain your screenshots.** It suggests the save locations of common screenshot tools (Flameshot, Spectacle, ksnip, grim, Hyprshot, niri) along with `~/Pictures/Screenshots`, `~/Pictures` and `~/Desktop`, with the number of images in each. On Windows it suggests `Pictures\Screenshots`, where Win+PrtScn and the Snipping Tool save.
+2. **Whether to index new screenshots in the background.** On Linux this installs a systemd user service, or an XDG autostart entry on systems without systemd. On Windows it starts gyotaku when you sign in.
+
+Indexing starts immediately, newest screenshots first, at idle CPU and I/O priority. Search is available while it runs.
+
+Before the first screenshot is read, gyotaku downloads the OCR models once (22 MB), and on Linux ONNX Runtime as well (24 MB). No network access is needed after that.
+
+### Updating
+
+Run the install command again. It replaces the programs and restarts the background indexer; the index, settings and thumbnails are kept.
+
+### Uninstalling
+
+Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh -s -- --uninstall
+```
+
+Windows, in PowerShell:
+
+```powershell
+$env:GYOTAKU_UNINSTALL = 1; irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
+```
+
+Both stop the background indexer and remove the programs, and print how to also remove the index and settings. Remove the keyboard shortcut yourself. gyotaku never modifies or deletes your screenshots unless you move them to the trash yourself.
+
+### Build from source
+
+Building needs Rust and a C compiler. The steps below are verified in [CI](https://github.com/xevrion/gyotaku/actions/workflows/ci.yml) from a clean image of Ubuntu 22.04, Debian 12, Kali, Arch Linux, Fedora and openSUSE Tumbleweed.
+
+#### 1. Install build dependencies
 
 **Ubuntu, Debian, Kali, Linux Mint, Pop!_OS**
 
@@ -72,7 +142,7 @@ sudo zypper install git curl gcc gcc-c++ make pkg-config fontconfig-devel libxkb
 
 Optional: install `wl-clipboard` (Wayland) or `xclip` (X11) to enable copying images. Copying text works without them.
 
-### 2. Install Rust
+#### 2. Install Rust
 
 gyotaku requires Rust 1.95 or newer. Install it with [rustup](https://rustup.rs) rather than your distribution's package manager, whose version is usually older:
 
@@ -82,7 +152,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Open a new terminal afterwards so that `cargo` is on your `PATH`. The repository's `rust-toolchain.toml` selects the correct version automatically.
 
-### 3. Build and install
+#### 3. Build and install
 
 ```sh
 git clone https://github.com/xevrion/gyotaku && cd gyotaku
@@ -90,55 +160,9 @@ cargo install --locked --path crates/cli     # gyotaku: the indexer and command-
 cargo install --locked --path crates/app     # gyotaku-app: the search window
 ```
 
-Both binaries are installed to `~/.cargo/bin`. The first build compiles the UI toolkit from source and takes several minutes. It requires about 3 GB of free disk space while running; the build directory is removed afterwards.
+Both binaries are installed to `~/.cargo/bin`; use `~/.cargo/bin/gyotaku-app` for the [keyboard shortcut](#keyboard-shortcut-linux). The first build compiles the UI toolkit from source and takes several minutes. It requires about 3 GB of free disk space while running; the build directory is removed afterwards.
 
-### 4. Bind a keyboard shortcut
-
-`gyotaku-app` opens the search window. Pressing the same shortcut again closes it. Some desktop environments do not use your shell's `PATH`, so use the absolute path printed by `which gyotaku-app` (for example `/home/you/.cargo/bin/gyotaku-app`).
-
-| Environment | Configuration |
-|---|---|
-| GNOME | Settings > Keyboard > View and Customize Shortcuts > Custom Shortcuts > Add |
-| KDE Plasma | System Settings > Keyboard > Shortcuts > Add New > Command or Script |
-| sway, i3 | `bindsym $mod+s exec gyotaku-app` |
-| Hyprland | `bind = SUPER, S, exec, gyotaku-app` |
-| niri | `Mod+S { spawn "gyotaku-app"; }` in the `binds` block |
-| Other | Any "run a command" shortcut. `gyotaku-app` can also be run from a terminal. |
-
-### First run
-
-On first launch, gyotaku asks:
-
-1. **Which folders contain your screenshots.** It suggests the save locations of common screenshot tools (Flameshot, Spectacle, ksnip, grim, Hyprshot, niri) along with `~/Pictures/Screenshots`, `~/Pictures` and `~/Desktop`, with the number of images in each.
-2. **Whether to index new screenshots in the background.** If enabled, it installs a systemd user service, or an XDG autostart entry on systems without systemd.
-
-Indexing starts immediately, newest screenshots first, at idle CPU and I/O priority. Search is available while it runs.
-
-Before the first screenshot is read, gyotaku downloads the OCR models and ONNX Runtime once (46 MB on disk). No network access is needed after that.
-
-### Updating
-
-```sh
-cd gyotaku && git pull
-cargo install --locked --path crates/cli
-cargo install --locked --path crates/app
-systemctl --user restart gyotaku-watch     # restart the background indexer
-pkill -x gyotaku-app                       # stop the resident window so the new version is used
-```
-
-The index, settings and thumbnails are preserved.
-
-### Uninstalling
-
-```sh
-systemctl --user disable --now gyotaku-watch
-rm -f ~/.config/systemd/user/gyotaku-watch.service ~/.config/autostart/gyotaku-watch.desktop
-pkill -x gyotaku-app
-cargo uninstall gyotaku gyotaku-app
-rm -rf ~/.config/gyotaku ~/.local/share/gyotaku ~/.cache/gyotaku
-```
-
-Then remove the keyboard shortcut. gyotaku never modifies or deletes your screenshots.
+To update a source build, `git pull` and run both `cargo install` commands again, then `systemctl --user restart gyotaku-watch` and `pkill -x gyotaku-app` so the new version is used. To remove it, run the uninstall command above, then `cargo uninstall gyotaku gyotaku-app`.
 
 If anything does not work as described, see [Troubleshooting](docs/troubleshooting.md).
 
@@ -173,6 +197,7 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 
 - [x] Move screenshots to the trash in bulk: search, mark the results, move them to the system trash, with undo
 - [ ] Simple installation on every supported OS: prebuilt releases and a one-command install, no Rust toolchain needed
+- [ ] A landing page with a demo, the measured numbers and the install commands
 - [ ] Windows support
 - [ ] macOS support
 - [ ] Optional classification of screenshots (one-time codes, receipts, chats) with Jev, to find and clear out the throwaway ones. Opt-in and off by default; only the recognized text is sent, never the image
