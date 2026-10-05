@@ -204,6 +204,7 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [ ] Typo-tolerant search for OCR misreads: look-alike characters (`0` and `O`, `rn` and `m`, `l` and `1`) and words the OCR split apart (`ord er` for `order`). Substring matching already works through the trigram index
 - [ ] Search by what a screenshot shows, not only the text in it ("the one with a cat"), using a small local image embedding model such as CLIP. Optional, offline, and fast enough without a GPU
 - [x] A keyboard shortcuts page in settings that lists every shortcut and lets each one be rebound by pressing the new keys
+- [ ] Screenshots that only ever go to the clipboard: an opt-in setting that saves images copied to the clipboard into a folder of their own, so they become searchable like any other screenshot
 - [ ] Group bursts of near-identical screenshots
 - [ ] Search filters such as `app:`, `in:` and dates like `yesterday`
 - [ ] More scripts, starting with Devanagari, and vertical text
