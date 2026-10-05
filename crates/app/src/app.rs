@@ -93,6 +93,9 @@ const TILE_FADE: Duration = Duration::from_millis(180);
 const BAR_IN: Duration = Duration::from_millis(140);
 // Leaving is quicker than arriving, it's the less interesting half.
 const BAR_OUT: Duration = Duration::from_millis(110);
+// The reading bar takes this long to catch up with each new count, which
+// arrives every tick, so it moves steadily instead of in steps.
+const READING_GLIDE: Duration = Duration::from_millis(600);
 const BAR_SWAP: Duration = Duration::from_millis(110);
 
 const BROWSE_LIMIT: usize = 20_000;
@@ -153,8 +156,15 @@ pub struct Gyotaku {
     /// Drawing on the cpu (no usable gpu), see `calm`.
     software: bool,
     repaint_pending: bool,
-    /// What the reader is doing, checked while there's nothing to search.
+    /// What the reader is doing, checked every tick.
     reader: Option<ReaderState>,
+    /// The header's progress bar glides from one reading to the next:
+    /// (from, to, since).
+    reading_bar: (f32, f32, Instant),
+    /// What the header said while reading, kept so it can fade out once the
+    /// reader is done, and since when it's been fading.
+    reading_last: Option<(String, Option<f32>)>,
+    reading_leaving: Option<Instant>,
 
     /// Shots marked for the trash, by id so they survive a refresh, with
     /// when they were marked so the change can animate.
@@ -293,7 +303,10 @@ impl Gyotaku {
             stats: FrameStats::new(),
             software: false,
             repaint_pending: false,
-            reader: (searchable == 0).then(reader_state),
+            reader: Some(reader_state(searchable == 0)),
+            reading_bar: (0.0, 0.0, Instant::now()),
+            reading_last: None,
+            reading_leaving: None,
             marked: HashMap::new(),
             unmarking: HashMap::new(),
             anchor: None,
@@ -370,14 +383,20 @@ impl Gyotaku {
         if !self.visible || !matches!(self.page, Page::Search) {
             return;
         }
-        // While there's nothing to search, the empty screen says what the
-        // reader is up to, so it has to keep up with it.
-        if self.searchable == 0 {
-            let reader = Some(reader_state());
-            if reader != self.reader {
-                self.reader = reader;
-                cx.notify();
+        // The header shows how far the reader has got, and the empty screen
+        // what it's up to, so both keep up with it.
+        let reader = Some(reader_state(self.searchable == 0));
+        if reader != self.reader {
+            let progress = |r: &Option<ReaderState>| r.as_ref().and_then(ReaderState::progress);
+            if let Some((done, of)) = progress(&reader) {
+                self.reading_bar = (
+                    self.reading_bar_now(),
+                    done as f32 / of.max(1) as f32,
+                    Instant::now(),
+                );
             }
+            self.reader = reader;
+            cx.notify();
         }
         let searchable = self.index.visible_len().unwrap_or(self.searchable);
         if searchable != self.searchable {
@@ -1475,7 +1494,98 @@ impl Gyotaku {
         (if on { eased } else { 1.0 - eased }, t < 1.0)
     }
 
-    fn render_header(&self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+    /// Where the header's progress bar is drawn right now, partway through
+    /// gliding to the latest reading.
+    fn reading_bar_now(&self) -> f32 {
+        let (from, to, since) = self.reading_bar;
+        let t = (since.elapsed().as_secs_f32() / READING_GLIDE.as_secs_f32()).min(1.0);
+        from + (to - from) * ease_out_quint()(t)
+    }
+
+    /// While the reader works through screenshots: how far it's got, and a
+    /// thin bar that fills as it goes. It fades in when reading starts and
+    /// out when it's done, and only ever moves because reading moved on.
+    fn render_reading(
+        &mut self,
+        theme: Theme,
+        window: &mut Window,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        let calm = self.calm(cx);
+        let now = self.reader.as_ref().filter(|r| r.running).and_then(|r| {
+            if let Some((done, of)) = r.progress() {
+                let label = format!("reading {} of {}", thousands(done), thousands(of));
+                Some((label, Some(self.reading_bar_now())))
+            } else {
+                r.getting_ready()
+                    .then(|| ("getting ready".to_string(), None))
+            }
+        });
+        let leaving = match now {
+            Some(shown) => {
+                self.reading_last = Some(shown);
+                self.reading_leaving = None;
+                None
+            }
+            None => {
+                self.reading_last.as_ref()?;
+                let since = *self.reading_leaving.get_or_insert_with(Instant::now);
+                let t = since.elapsed().as_secs_f32() / BAR_OUT.as_secs_f32();
+                if calm || t >= 1.0 {
+                    self.reading_last = None;
+                    self.reading_leaving = None;
+                    return None;
+                }
+                Some(ease_out_quint()(t))
+            }
+        };
+        let (label, fill) = self.reading_last.clone()?;
+        if fill.is_some_and(|f| (f - self.reading_bar.1).abs() > 0.001) || leaving.is_some() {
+            window.request_animation_frame();
+        }
+
+        let width = 64.0;
+        let row = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_xs()
+            .text_color(theme.muted)
+            .child(label)
+            .children(fill.map(|f| {
+                div()
+                    .w(px(width))
+                    .h(px(3.))
+                    .rounded_full()
+                    .bg(theme.track)
+                    .child(
+                        div()
+                            .h_full()
+                            .w(px(width * f.clamp(0.0, 1.0)))
+                            .rounded_full()
+                            .bg(theme.muted),
+                    )
+            }));
+        Some(match leaving {
+            Some(t) => row.opacity(1.0 - t).into_any_element(),
+            None if calm => row.into_any_element(),
+            None => row
+                .with_animation(
+                    "reading",
+                    Animation::new(BAR_IN).with_easing(ease_out_quint()),
+                    |el, t| el.opacity(t),
+                )
+                .into_any_element(),
+        })
+    }
+
+    fn render_header(
+        &mut self,
+        theme: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let reading = self.render_reading(theme, window, cx);
         // While searching, how many matched. While browsing, when the selected
         // one was taken, which is the one thing the grid itself can't show.
         let count = if self.searching() {
@@ -1507,6 +1617,7 @@ impl Gyotaku {
                     .line_height(px(30.))
                     .child(self.input.clone()),
             )
+            .children(reading)
             .child(div().text_sm().text_color(theme.muted).child(count))
             .child(
                 div()
@@ -2054,7 +2165,7 @@ impl Render for Gyotaku {
                         .pt(px(6.))
                         .into_any_element()
                 };
-                let mut content = vec![self.render_header(theme, cx), body];
+                let mut content = vec![self.render_header(theme, window, cx), body];
                 content.extend(self.render_scrollbar(theme).map(|s| s.into_any_element()));
                 content.extend(self.render_detail(window, cx));
                 content.extend(self.render_mark_bar(theme, window, cx));
@@ -2259,10 +2370,28 @@ struct ReaderState {
     line: String,
 }
 
-fn reader_state() -> ReaderState {
+impl ReaderState {
+    /// `reading 12 of 340` as (12, 340).
+    fn progress(&self) -> Option<(usize, usize)> {
+        let (done, of) = self.line.strip_prefix("reading ")?.split_once(" of ")?;
+        Some((done.parse().ok()?, of.parse().ok()?))
+    }
+
+    fn getting_ready(&self) -> bool {
+        self.line.starts_with("getting")
+    }
+}
+
+/// `nothing_searchable` is when the empty screen needs to know whether the
+/// reader is alive at all. Otherwise that's only checked while its last word
+/// says it's busy, so a reader that died mid-way doesn't leave a progress
+/// bar standing.
+fn reader_state(nothing_searchable: bool) -> ReaderState {
+    let line = gyotaku_core::status::get().unwrap_or_default();
+    let busy = line.starts_with("reading") || line.starts_with("getting");
     ReaderState {
-        running: gyotaku_core::status::reader_running(),
-        line: gyotaku_core::status::get().unwrap_or_default(),
+        running: (busy || nothing_searchable) && gyotaku_core::status::reader_running(),
+        line,
     }
 }
 
@@ -2291,6 +2420,18 @@ fn taken_at(mtime: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reading_progress_comes_from_the_status_line() {
+        let state = |line: &str| ReaderState {
+            running: true,
+            line: line.into(),
+        };
+        assert_eq!(state("reading 12 of 340").progress(), Some((12, 340)));
+        assert_eq!(state("up to date").progress(), None);
+        assert_eq!(state("reading your screenshots").progress(), None);
+        assert!(state("getting the text reader ready").getting_ready());
+    }
 
     #[test]
     fn thousands_separators() {
