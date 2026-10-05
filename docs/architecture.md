@@ -4,6 +4,7 @@
 - [Text recognition](#text-recognition)
 - [Index and search](#index-and-search)
 - [Search window](#search-window)
+- [Operating systems](#operating-systems)
 - [Repository layout](#repository-layout)
 
 ## Overview
@@ -54,9 +55,9 @@ The index is a single SQLite database using FTS5 with the trigram tokenizer. Tri
 
 ## Search window
 
-The window is built with [GPUI](https://gpui.rs), the UI framework behind the Zed editor, rendering through wgpu on Vulkan or OpenGL.
+The window is built with [GPUI](https://gpui.rs), the UI framework behind the Zed editor, rendering through wgpu on Vulkan or OpenGL on Linux, and Direct3D 11 on Windows.
 
-- **Resident process.** GPU driver initialization accounts for 300 to 800 ms of a cold start. After the first launch, the process remains resident while hidden (37 MB) and later launches signal it over a Unix socket, reducing summon time to ~120 ms. The window reopens in its previous state.
+- **Resident process.** GPU driver initialization accounts for 300 to 800 ms of a cold start. After the first launch, the process remains resident while hidden (37 MB) and later launches signal it (see [Operating systems](#operating-systems)), reducing summon time to ~120 ms. The window reopens in its previous state.
 - **Search highlighting.** While a query is active, thumbnails are dimmed and matched lines are outlined in the accent color, vermilion. The accent color is reserved for search matches; selection uses the foreground color.
 - **Interruptible motion.** Opening a screenshot animates it from its thumbnail with a spring. Springs can be interrupted, so pressing Escape mid-animation reverses from the current position. Animations advance by elapsed time, not per frame, so they run at the correct speed on slow machines.
 - **Software rendering.** When no GPU is available, animated transitions are replaced by short fades, because each frame rendered on the CPU has a measurable power cost.
@@ -65,15 +66,39 @@ The window is built with [GPUI](https://gpui.rs), the UI framework behind the Ze
 
 The interface uses IBM Plex Sans and a neutral palette so that the screenshots themselves carry the color. Motion occurs only in response to user input.
 
+## Operating systems
+
+Everything that differs between operating systems is isolated in `platform` modules, one file per system implementing the same interface. The rest of the code never checks which system it runs on.
+
+| Module | Linux | Windows |
+|---|---|---|
+| `crates/app/src/platform` | | |
+| Launcher window | Layer-shell overlay on Wayland; a regular window elsewhere | Borderless, always-on-top popup that hides when it loses focus |
+| Summoning | A shortcut configured in the desktop runs `gyotaku-app` | A global hotkey registered by the app (Alt+Shift+S) |
+| Signalling the resident process | Unix socket | Loopback TCP port, with a lock file against races |
+| Background indexing | systemd user service, or an XDG autostart entry | The app starts the indexer whenever it runs; the `Run` registry key starts the app at sign-in |
+| Clipboard | `wl-copy` or `xclip`, so copies persist after the window closes | The system clipboard |
+| Screenshot folder detection | Configuration of Flameshot, Spectacle, ksnip, niri, grim, Hyprshot | Game Bar captures and ShareX, plus `Pictures\Screenshots` |
+| `crates/cli/src/platform` | | |
+| Idle priority | `SCHED_IDLE` and idle I/O priority | Process background mode |
+| Battery detection | `/sys/class/power_supply` | `GetSystemPowerStatus` |
+| `crates/core/src/trash` | | |
+| Moving to the trash | freedesktop.org trash specification, per drive | Recycle Bin, fixed drives only |
+
+Each `platform/mod.rs` fails the build with a `compile_error!` on an unsupported system, so a port starts by adding one file per module and lets the compiler list what remains.
+
+Windows releases link the C runtime statically and ship Microsoft's Visual C++ runtime DLLs beside ONNX Runtime, so they run on a fresh installation. CI builds the Windows version on every change, opens the window on a Windows runner (rendering with WARP, a software renderer), and stores screenshots of it as a build artifact.
+
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `crates/core` | Index, configuration, search, thumbnail crop rules |
+| `crates/core` | Index, configuration, search, thumbnail crop rules, moving to the trash |
 | `crates/ocr` | PP-OCRv6 on ONNX Runtime: detection, recognition, decoding, model download |
 | `crates/cli` | The `gyotaku` binary: `index`, `watch`, `search`, `stats`, `ocr` |
 | `crates/app` | The `gyotaku-app` binary: search window, onboarding and settings |
-| `contrib/` | systemd user unit for manual installation |
+| `install.sh`, `install.ps1` | One-command installers for Linux and Windows, tested in CI |
+| `contrib/` | systemd user unit for manual installation, the Windows release readme |
 | `tests/fixtures/` | Test images used in CI |
 
 `core` and `ocr` have no dependency on the UI, so the command-line interface and CI exercise them on machines without a display.
