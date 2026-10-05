@@ -106,7 +106,7 @@ the screenshots are the colour, the chrome around them stays quiet: off white or
 - a capture overlay of its own (or just call utsushot, 4x supersampled captures are the best OCR input there is)
 - group bursts of near identical shots (i have 8 of the same page within 2 minutes in places)
 - filters: `app:brave`, `yesterday`, `in:~/Pictures/Screenshots`
-- fuzzy matching for OCR typos beyond what trigrams already forgive: fold look-alikes (0/O, 1/l/I, rn/m, 5/S) on both sides before matching, and match across spaces so a word the OCR split (`ord er`) still finds `order`. suggested on X by @sunsetsyntax, 2026-10-05
+- fuzzy matching for OCR typos beyond what trigrams already forgive: fold look-alikes (0/O, 1/l/I, rn/m, 5/S) on both sides before matching, and match across spaces so a word the OCR split (`ord er`) still finds `order`. suggested on X by @sunsetsyntax, 2026-10-05. and from @ivzhukau the same day, for terminal screenshots: exact matches must rank first, near matches get a visible label (a different outline style, not shu, since shu means "found exactly this"), and the detail view shows the line exactly as ocr read it, so whether an error code had O or 0 is never hidden. folding only ever widens what's found, it never rewrites the stored text
 - a vertical-text pass, and a model with devanagari so hindi screenshots work
 - batch several screenshots through the detector at once during backfill
 - mac and windows: the core and ui are portable, the watcher and overlay aren't yet
