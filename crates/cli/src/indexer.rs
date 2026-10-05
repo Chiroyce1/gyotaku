@@ -75,6 +75,9 @@ impl Indexer {
     }
 
     pub fn index_file(&mut self, path: &Path) -> Result<Outcome> {
+        if fs::metadata(path).is_ok_and(|m| platform::only_in_the_cloud(&m)) {
+            return Ok(Outcome::Unchanged);
+        }
         let mtime = mtime(path)?;
         if self.index.is_current(path, mtime)? {
             // The thumbnail cache can be wiped (or its format change) without
@@ -89,6 +92,12 @@ impl Indexer {
             return Ok(Outcome::Unchanged);
         }
 
+        // A file that can't even be opened (a capture tool or a virus
+        // scanner still holding it) says nothing about the image, so it's
+        // left to try again rather than written off as unreadable.
+        if let Err(e) = fs::File::open(path) {
+            return Err(e).with_context(|| format!("can't open {}", path.display()));
+        }
         let t = Instant::now();
         let img = match gyotaku_ocr::load_image(path) {
             Ok(img) => img,
@@ -193,7 +202,12 @@ pub fn scan(dirs: &[PathBuf]) -> Vec<PathBuf> {
             let file = kind.is_file() || (kind.is_symlink() && path.is_file());
             if kind.is_dir() && !hidden {
                 stack.push(path);
-            } else if file && is_image(&path) {
+            } else if file
+                && is_image(&path)
+                && !entry
+                    .metadata()
+                    .is_ok_and(|m| platform::only_in_the_cloud(&m))
+            {
                 found.insert(path);
             }
         }

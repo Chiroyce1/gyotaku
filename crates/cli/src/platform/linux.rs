@@ -17,6 +17,12 @@ pub fn release_memory() {
     }
 }
 
+/// Cloud folders on Linux (rclone, the GNOME and KDE clients) mount as
+/// ordinary files, with nothing to tell them apart.
+pub fn only_in_the_cloud(_: &std::fs::Metadata) -> bool {
+    false
+}
+
 /// Any laptop's kernel lists its batteries under /sys/class/power_supply,
 /// and one that says Discharging means unplugged.
 pub fn on_battery() -> bool {

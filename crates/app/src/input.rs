@@ -117,7 +117,10 @@ impl TextInput {
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
+            // One line: Windows copies lines ending in \r\n, and tabs come
+            // along from tables.
+            let line = text.replace("\r\n", " ").replace(['\n', '\r', '\t'], " ");
+            self.replace_text_in_range(None, &line, window, cx);
         }
     }
 
@@ -309,10 +312,24 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.marked_range =
             (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
+        // The selection inside what's being composed comes in UTF-16 units
+        // counted from the start of `new_text`, so it's converted against
+        // `new_text` and shifted to where that landed. (Converting it against
+        // the whole field could put it mid-character, and slicing there
+        // panics.)
+        let inside = |utf16: usize| {
+            let mut units = 0;
+            for (at, ch) in new_text.char_indices() {
+                if units >= utf16 {
+                    return at;
+                }
+                units += ch.len_utf16();
+            }
+            new_text.len()
+        };
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|r| range.start + inside(r.start)..range.start + inside(r.end))
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
         cx.emit(Changed);
         cx.notify();

@@ -102,22 +102,33 @@ pub fn shown(name: &str, cx: &App) -> SharedString {
         .unwrap_or_default()
 }
 
-/// The key a shortcut ends up on: its override when that's usable,
-/// otherwise its default. A hand-edited config with a typo or a clash just
-/// falls back, it never takes a shortcut away.
+/// The key each shortcut ends up on, never the same key twice. Shortcuts
+/// left at their default keep it. A changed one gets its new key unless a
+/// shortcut before it already has that key; otherwise it falls back to its
+/// default, and if even that is taken it's left without a key rather than
+/// silently shadowing another. A hand-edited config with a typo or a clash
+/// can't break the others.
 fn resolve(overrides: &BTreeMap<String, String>) -> Vec<String> {
-    let mut taken: Vec<String> = Vec::new();
-    let mut keys = Vec::new();
-    for s in &SHORTCUTS {
-        let wanted = overrides
-            .get(s.name)
-            .filter(|k| usable(k).is_ok() && !taken.contains(k))
-            .cloned();
-        let key = wanted.unwrap_or_else(|| s.default.to_string());
-        taken.push(key.clone());
-        keys.push(key);
-    }
-    keys
+    let changed = |s: &Shortcut| overrides.get(s.name).filter(|k| usable(k).is_ok()).cloned();
+    let mut taken: Vec<String> = SHORTCUTS
+        .iter()
+        .filter(|s| changed(s).is_none())
+        .map(|s| s.default.to_string())
+        .collect();
+    SHORTCUTS
+        .iter()
+        .map(|s| match changed(s) {
+            None => s.default.to_string(),
+            Some(key) => {
+                let key = [key, s.default.to_string()]
+                    .into_iter()
+                    .find(|k| !taken.contains(k))
+                    .unwrap_or_default();
+                taken.push(key.clone());
+                key
+            }
+        })
+        .collect()
 }
 
 /// Why a key can't be a shortcut, if it can't.
@@ -183,7 +194,9 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
     let keys = resolve(overrides);
     let mut bound = HashMap::new();
     for (s, key) in SHORTCUTS.iter().zip(&keys) {
-        cx.bind_keys([(s.bind)(key)]);
+        if !key.is_empty() {
+            cx.bind_keys([(s.bind)(key)]);
+        }
         bound.insert(s.name, pretty(key));
     }
     cx.set_global(Bound(bound));
@@ -191,6 +204,9 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
 
 /// `ctrl-shift-c` as `ctrl shift c`, the way every hint in the app reads.
 pub fn pretty(key: &str) -> SharedString {
+    if key.is_empty() {
+        return "no key".into();
+    }
     let Ok(k) = Keystroke::parse(key) else {
         return key.to_string().into();
     };
@@ -248,6 +264,27 @@ mod tests {
         assert_eq!(current(ix("trash"), &o), "ctrl-delete");
         assert_eq!(taken_by("ctrl-o", ix("trash"), &o), Some(ix("open")));
         assert_eq!(taken_by("ctrl-k", ix("trash"), &o), None);
+    }
+
+    #[test]
+    fn no_key_is_ever_bound_twice() {
+        let ix = |name| SHORTCUTS.iter().position(|s| s.name == name).unwrap();
+        // copy text took trash's default while trash was on ctrl k; then the
+        // trash override was deleted by hand.
+        let mut o = BTreeMap::new();
+        o.insert("copy_text".to_string(), "ctrl-delete".to_string());
+        assert_eq!(current(ix("trash"), &o), "ctrl-delete");
+        assert_eq!(current(ix("copy_text"), &o), "ctrl-c");
+        // Two changed shortcuts after the same key: the first keeps it.
+        o.insert("trash".to_string(), "ctrl-k".to_string());
+        o.insert("undo".to_string(), "ctrl-k".to_string());
+        let keys = resolve(&o);
+        let mut seen = std::collections::HashSet::new();
+        assert!(
+            keys.iter()
+                .filter(|k| !k.is_empty())
+                .all(|k| seen.insert(k))
+        );
     }
 
     #[test]

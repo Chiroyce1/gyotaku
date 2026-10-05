@@ -144,6 +144,9 @@ pub struct Gyotaku {
     /// Scroll the selection back into view after the next layout, because
     /// relaying out the list loses its scroll position.
     reveal_selected: bool,
+    /// The shot at the top of the view and how far into its row, so a
+    /// rebuilt list can be put back where it was.
+    keep_top: Option<(i64, Pixels)>,
 
     page: Page,
     /// Focus for settings and onboarding, so typing there doesn't land in
@@ -246,8 +249,15 @@ impl Gyotaku {
     pub fn new(index: Index, floating: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let searchable = index.visible_len().unwrap_or(0);
         let input = cx.new(|cx| TextInput::new(placeholder(searchable), cx));
-        cx.subscribe(&input, |this, _, _: &Changed, cx| this.search(cx))
-            .detach();
+        // Only when the text really changed: backspace in an empty field (a
+        // natural reflex with shots marked) would otherwise clear the marks,
+        // close the open shot and jump back to the top.
+        cx.subscribe(&input, |this, input, _: &Changed, cx| {
+            if *input.read(cx).content != *this.query {
+                this.search(cx);
+            }
+        })
+        .detach();
         // Only a missing config means "never set up". One that doesn't parse
         // (a typo made by hand) falls back to defaults rather than sending
         // someone through onboarding, which would overwrite their file.
@@ -296,6 +306,7 @@ impl Gyotaku {
             appearance: None,
             activation: None,
             reveal_selected: false,
+            keep_top: None,
             page: Page::Search,
             panel_focus: cx.focus_handle(),
             theme_choice: config.theme,
@@ -445,6 +456,17 @@ impl Gyotaku {
 
     /// Runs the current query again without resetting where you are.
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        // Rebuilding the list loses its scroll position, and this runs every
+        // time a new screenshot is read. The shot at the top of the view is
+        // remembered so the view stays put. At the very top it doesn't: new
+        // screenshots arrive there, and that's where they should be seen.
+        let top = self.list.logical_scroll_top();
+        self.keep_top = (top.item_ix > 0 || top.offset_in_item > px(0.))
+            .then(|| {
+                let first = self.rows.get(top.item_ix)?.tiles.first()?.item;
+                Some((self.hits.get(first)?.id, top.offset_in_item))
+            })
+            .flatten();
         let selected = self.hits.get(self.selected).map(|h| h.id);
         let open = self
             .detail
@@ -457,13 +479,17 @@ impl Gyotaku {
         self.marked.retain(|id, _| present.contains(id));
         self.anchor = None;
         let at = |id: Option<i64>| id.and_then(|id| self.hits.iter().position(|h| h.id == id));
-        self.selected = at(selected).unwrap_or(0);
+        let kept = at(selected);
+        self.selected = kept.unwrap_or(0);
+        // A question about the selected shot can't stand if that shot is gone.
+        if kept.is_none() && self.marked.is_empty() {
+            self.confirming = false;
+        }
         match (at(open), self.detail.as_mut()) {
             (Some(ix), Some(d)) => d.hit = ix,
             _ => self.detail = None,
         }
         self.laid_out_for = 0.0;
-        self.reveal_selected = true;
     }
 
     fn load_hits(&mut self, cx: &mut Context<Self>) {
@@ -587,6 +613,15 @@ impl Gyotaku {
         self.located = grid::locate(&self.rows, self.hits.len());
         self.laid_out_for = width;
         self.list.reset(self.rows.len());
+        if let Some((id, offset)) = self.keep_top.take()
+            && let Some(item) = self.hits.iter().position(|h| h.id == id)
+            && let Some(&(row, _)) = self.located.get(item)
+        {
+            self.list.scroll_to(ListOffset {
+                item_ix: row,
+                offset_in_item: offset,
+            });
+        }
         if std::mem::take(&mut self.reveal_selected)
             && let Some(&(row, _)) = self.located.get(self.selected)
         {
@@ -807,11 +842,16 @@ impl Gyotaku {
                 );
             }
         }
+        // Only what went to the trash loses its mark: trashing the one open
+        // shot leaves the marks on the others for later.
+        let gone: Vec<i64> = targets.iter().map(|&i| self.hits[i].id).collect();
+        for id in &gone {
+            self.marked.remove(id);
+            self.unmarking.remove(id);
+        }
         if moved > 0 {
             self.undo = batch;
         }
-        self.marked.clear();
-        self.unmarking.clear();
         self.anchor = None;
         if let Some(d) = self.detail.as_mut() {
             // The tile it would fly back to is leaving, so it fades instead.
@@ -864,12 +904,17 @@ impl Gyotaku {
         // leaving, takes over from that settle.
         self.leaves += 1;
         self.fading.clear();
+        // A question asked before the undo was about a different set of
+        // marks; enter mustn't answer it with these.
+        self.confirming = false;
+        let batch = std::mem::take(&mut self.undo);
+        let trashed: Vec<Trashed> = batch.iter().map(|b| b.trashed.clone()).collect();
         let mut back = Vec::new();
         let mut failed = 0;
-        for u in std::mem::take(&mut self.undo) {
-            match trash::restore(&u.trashed) {
+        for (b, restored) in batch.iter().zip(trash::restore_all(&trashed)) {
+            match restored {
                 Ok(()) => {
-                    if let Ok(id) = self.index.insert(&u.shot, &u.lines) {
+                    if let Ok(id) = self.index.insert(&b.shot, &b.lines) {
                         back.push(id);
                     }
                 }
@@ -880,10 +925,16 @@ impl Gyotaku {
             }
         }
         self.after_change(cx);
-        // What came back grows back in, and stays marked so it's plain
-        // which ones they were.
+        // What came back grows back in, and stays marked so it's plain which
+        // ones they were. Only what this search shows, though: a mark on a
+        // shot that isn't on screen can't be seen or undone.
         let now = Instant::now();
-        for &id in &back {
+        let shown: Vec<i64> = back
+            .iter()
+            .copied()
+            .filter(|id| self.hits.iter().any(|h| h.id == *id))
+            .collect();
+        for &id in &shown {
             self.set_mark(id, true);
             self.fading.insert(
                 id,
@@ -894,7 +945,11 @@ impl Gyotaku {
                 },
             );
         }
-        if let Some(i) = self.hits.iter().position(|h| back.contains(&h.id)) {
+        // With a shot open, the selection stays on it: open, copy and reveal
+        // act on the selection, and must act on what's on screen.
+        if let Some(d) = &self.detail {
+            self.selected = d.hit;
+        } else if let Some(i) = self.hits.iter().position(|h| shown.contains(&h.id)) {
             self.selected = i;
             self.reveal_selected = true;
         }
@@ -940,9 +995,18 @@ impl Gyotaku {
         // one goes to the next step. Pressing escape twice quickly should do
         // two things, not one, whatever speed the machine animates at.
         let closing = self.detail.as_ref().is_some_and(|d| d.open.target() == 0.0);
+        let tile = self
+            .detail
+            .as_ref()
+            .and_then(|d| self.tile_bounds.borrow().get(&d.hit).copied());
         if let Some(d) = self.detail.as_mut().filter(|_| !closing) {
             if d.grow {
                 d.open.set_response(CLOSE_RESPONSE, 1.0);
+            }
+            // Back into the tile of the shot on screen now, which after
+            // stepping through with the arrows isn't the one it opened from.
+            if let Some(tile) = tile {
+                d.from = tile;
             }
             d.open.set_target(0.0);
             self.last_frame = Instant::now();
@@ -1293,9 +1357,16 @@ impl Gyotaku {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Rows are laid out ahead of the results changing under them now and
+        // then (a refresh between layout and paint); a row naming a shot
+        // that's no longer there draws an empty slot for that frame.
+        let (Some(path), Some(original)) = (
+            self.thumb_paths.get(i).cloned(),
+            self.hits.get(i).map(|h| h.path.clone()),
+        ) else {
+            return div().w(px(w)).h(px(h)).into_any_element();
+        };
         let theme = *cx.global::<Theme>();
-        let path = self.thumb_paths[i].clone();
-        let original = self.hits[i].path.clone();
         let thumb = self.image(&path, Some(&original), window, cx);
         let lines = self.matched_lines(i);
         let hit = &self.hits[i];
@@ -1960,7 +2031,13 @@ impl Gyotaku {
                     "enter",
                     "move",
                     theme,
-                    cx.listener(|this, _, _, cx| this.trash_now(cx)),
+                    // The bar is still on screen for a moment as it slides
+                    // away, so a click then mustn't count as a yes.
+                    cx.listener(|this, _, _, cx| {
+                        if this.confirming {
+                            this.trash_now(cx)
+                        }
+                    }),
                 ))
                 .child(button(
                     "bar-no",
@@ -1986,8 +2063,10 @@ impl Gyotaku {
                     "move to trash",
                     theme,
                     cx.listener(|this, _, _, cx| {
-                        this.confirming = true;
-                        cx.notify();
+                        if !this.trash_targets().is_empty() {
+                            this.confirming = true;
+                            cx.notify();
+                        }
                     }),
                 ))
                 .when(state.can_mark_more, |row| {
@@ -2023,7 +2102,11 @@ impl Gyotaku {
             )
             .into_any_element()
         };
+        // Clicks on the bar stop at the bar, rather than also landing on the
+        // tile underneath it and opening that.
         let pill = div()
+            .id("mark-bar")
+            .occlude()
             .pl_4()
             .pr_1p5()
             .py_1p5()
@@ -2079,6 +2162,8 @@ impl Gyotaku {
                 .justify_center()
                 .child(
                     div()
+                        .id("toast")
+                        .occlude()
                         .px_4()
                         .py_2()
                         .rounded_full()
@@ -2128,6 +2213,8 @@ impl Focusable for Gyotaku {
 impl Render for Gyotaku {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = self.stats.begin();
+        self.thumbs.new_frame();
+        self.full.new_frame();
         let theme = *cx.global::<Theme>();
 
         // The real time since the last frame, so motion takes as long on a

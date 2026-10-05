@@ -30,3 +30,8 @@ pub use imp::release_memory;
 
 /// Whether the machine is running on battery right now. Desktops never are.
 pub use imp::on_battery;
+
+/// Whether a file is only a placeholder for one in cloud storage (OneDrive's
+/// files on demand), which reading would download. Pictures is often synced
+/// to OneDrive on Windows, and reading would pull the whole library down.
+pub use imp::only_in_the_cloud;

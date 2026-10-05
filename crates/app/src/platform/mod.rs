@@ -38,7 +38,7 @@ compile_error!(
 pub use imp::{listen, resident_address, wake};
 
 // The window, and the key that brings it up.
-pub use imp::{hides_when_inactive, open_launcher, register_summon};
+pub use imp::{hides_when_inactive, open_launcher, register_summon, take_focus};
 
 // Copying out of the window.
 pub use imp::{copy_image, copy_text};
@@ -48,7 +48,7 @@ pub use imp::{release_memory, tune_allocator};
 
 // Reading new screenshots without being asked.
 pub use imp::{
-    background_status, keep_reading, on_launch, service_status, start_service, stop_service,
+    background_status, keep_reading, revive_reader, service_status, start_service, stop_service,
 };
 
 // Where screenshot tools save, and the wording that differs.

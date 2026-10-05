@@ -102,6 +102,11 @@ pub fn hides_when_inactive() -> bool {
     false
 }
 
+/// The overlay asks for the keyboard as it opens, and an ordinary window
+/// opened by a key press gets it. Asking again on Wayland only makes some
+/// desktops flag the app as wanting attention.
+pub fn take_focus(_: &mut Window) {}
+
 /// Nothing to register: the desktop's own shortcut runs `gyotaku-app`, and
 /// that knocks on the running copy.
 pub fn register_summon(_: UnboundedSender<()>, _: &BTreeMap<String, String>, _: &mut App) {}
@@ -234,8 +239,9 @@ pub fn stop_service() -> bool {
     true
 }
 
-/// The service, if there is one, was started by the desktop at login.
-pub fn on_launch() {}
+/// The service, if there is one, was started at login and systemd restarts
+/// it when it fails.
+pub fn revive_reader() {}
 
 /// Saying no in onboarding means no: `gyotaku watch` is run by hand.
 pub fn keep_reading() {}

@@ -76,7 +76,7 @@ fn main() -> Result<()> {
             if !(background && listener.is_some()) {
                 toggle(cx);
             }
-            platform::on_launch();
+            platform::revive_reader();
 
             // The view lives on for next time, but most of its thumbnails
             // don't need to. Hand the freed pages back so an idle gyotaku
@@ -152,7 +152,9 @@ pub(crate) fn summon(cx: &mut App) {
     let _ = window.update(cx, |view, window, cx| {
         window.focus(&gpui::Focusable::focus_handle(view, cx), cx);
         cx.activate(true);
+        platform::take_focus(window);
     });
+    platform::revive_reader();
 }
 
 /// A generous palette, but never more than most of the screen.

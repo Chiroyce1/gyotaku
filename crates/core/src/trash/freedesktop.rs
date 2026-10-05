@@ -39,6 +39,10 @@ pub fn trash(path: &Path) -> Result<Trashed> {
 
 /// Puts a trashed file back where it came from. Refuses if something new has
 /// taken its place since, rather than overwrite it.
+pub fn restore_all(items: &[Trashed]) -> Vec<Result<()>> {
+    items.iter().map(restore).collect()
+}
+
 pub fn restore(t: &Trashed) -> Result<()> {
     if fs::symlink_metadata(&t.original).is_ok() {
         bail!("{} exists again", t.original.display());

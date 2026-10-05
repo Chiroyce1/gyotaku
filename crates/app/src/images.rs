@@ -35,6 +35,12 @@ pub struct Images {
     /// Anything bigger gets scaled down on decode. A 28 megapixel scroll
     /// capture would otherwise be a 112 MB texture.
     max_side: u32,
+    /// Images asked for since the frame started. Those sit at the back of
+    /// `order`, and the cache never shrinks below them: a big window full of
+    /// small phone screenshots can show more than `capacity` at once, and
+    /// evicting one still on screen would decode it again, evict it again,
+    /// forever.
+    this_frame: usize,
 }
 
 impl Images {
@@ -44,12 +50,18 @@ impl Images {
             order: VecDeque::new(),
             capacity,
             max_side,
+            this_frame: 0,
         }
+    }
+
+    pub fn new_frame(&mut self) {
+        self.this_frame = 0;
     }
 
     /// The image if it's ready. `Start` means the caller should kick off a
     /// decode for it, which happens once per path.
     pub fn get(&mut self, path: &Path, window: &mut Window, cx: &mut App) -> Lookup {
+        self.this_frame += 1;
         if let Some(slot) = self.slots.get(path) {
             let found = match slot {
                 Slot::Ready(image) => Lookup::Ready(image.clone()),
@@ -61,7 +73,7 @@ impl Images {
 
         self.slots.insert(path.to_owned(), Slot::Loading);
         self.order.push_back(path.to_owned());
-        while self.order.len() > self.capacity {
+        while self.order.len() > self.capacity.max(self.this_frame) {
             let Some(oldest) = self.order.pop_front() else {
                 break;
             };

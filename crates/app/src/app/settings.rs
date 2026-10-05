@@ -107,6 +107,9 @@ const LOOKS_LIKE_SCREENSHOTS: usize = 10;
 
 impl Gyotaku {
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A trash question left open would otherwise be answered by the
+        // first enter after coming back.
+        self.confirming = false;
         let config = Config::load_or_default();
         let paths = self.index.paths().unwrap_or_default();
         let shots = config
@@ -338,15 +341,14 @@ impl Gyotaku {
             return;
         }
         self.theme_choice = config.theme;
-        if background {
-            if platform::service_status() != Service::Running {
-                cx.background_executor()
-                    .spawn(async { platform::start_service() })
-                    .detach();
-            }
-        } else {
-            platform::keep_reading();
+        if background && platform::service_status() != Service::Running {
+            cx.background_executor()
+                .spawn(async { platform::start_service() })
+                .detach();
         }
+        // Whatever was set up before (a start-with-Windows entry left from an
+        // earlier install looks like "already running"), reading starts now.
+        platform::keep_reading();
         self.leave_panel(window, cx);
         self.flash(
             if background {
@@ -442,6 +444,17 @@ impl Gyotaku {
     fn reset_shortcut(&mut self, i: usize, cx: &mut Context<Self>) {
         let mut config = self.current_config();
         let shortcut = &SHORTCUTS[i];
+        // The default may have been given to another shortcut since.
+        if let Some(j) = keys::taken_by(shortcut.default, i, &config.keys) {
+            return self.flash(
+                format!(
+                    "{} is {} now, change that one first",
+                    keys::pretty(shortcut.default),
+                    SHORTCUTS[j].label
+                ),
+                cx,
+            );
+        }
         if config.keys.remove(shortcut.name).is_none() {
             return;
         }
@@ -721,7 +734,11 @@ impl Gyotaku {
                             div()
                                 .id(("remove", i))
                                 .opacity(if selected { 1.0 } else { 0.0 })
+                                // The row around it has a click of its own,
+                                // which would then act on whatever row took
+                                // this one's place.
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
                                     this.remove_folder(i, cx)
                                 }))
                                 .child(hint("del", "remove", theme)),

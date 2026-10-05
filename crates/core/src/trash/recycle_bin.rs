@@ -27,23 +27,54 @@ pub fn trash(path: &Path) -> Result<Trashed> {
     Ok(Trashed { original: path })
 }
 
-/// Finds the most recently recycled file that came from this path and puts
-/// it back. Refuses if something new has taken its place since.
-pub fn restore(t: &Trashed) -> Result<()> {
-    if std::fs::symlink_metadata(&t.original).is_ok() {
-        bail!("{} exists again", t.original.display());
-    }
-    let parent = t.original.parent().context("no parent folder")?;
-    let name = t.original.file_name().context("no file name")?;
-    let item = ::trash::os_limited::list()
-        .context("can't read the Recycle Bin")?
-        .into_iter()
-        .filter(|i| i.original_parent == parent && i.name == name)
-        .max_by_key(|i| i.time_deleted)
-        .with_context(|| format!("{} isn't in the Recycle Bin any more", t.original.display()))?;
-    ::trash::os_limited::restore_all([item])
-        .with_context(|| format!("can't put back {}", t.original.display()))?;
-    Ok(())
+/// Puts each one back: for each, the most recently recycled file that came
+/// from its path. Refuses one where something new has taken its place since.
+/// The Recycle Bin is read once for the lot, it can hold thousands of items.
+pub fn restore_all(items: &[Trashed]) -> Vec<Result<()>> {
+    let mut bin = match ::trash::os_limited::list() {
+        Ok(bin) => bin,
+        Err(e) => {
+            let e = format!("can't read the Recycle Bin: {e}");
+            return items
+                .iter()
+                .map(|_| Err(anyhow::anyhow!(e.clone())))
+                .collect();
+        }
+    };
+    items
+        .iter()
+        .map(|t| {
+            if std::fs::symlink_metadata(&t.original).is_ok() {
+                bail!("{} exists again", t.original.display());
+            }
+            let at = bin
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| came_from(i, &t.original))
+                .max_by_key(|(_, i)| i.time_deleted)
+                .map(|(at, _)| at)
+                .with_context(|| {
+                    format!("{} isn't in the Recycle Bin any more", t.original.display())
+                })?;
+            let item = bin.swap_remove(at);
+            ::trash::os_limited::restore_all([item])
+                .with_context(|| format!("can't put back {}", t.original.display()))
+        })
+        .collect()
+}
+
+/// Windows paths ignore case, and the Recycle Bin lists names the way
+/// Explorer shows them, which hides the extension by default.
+fn came_from(item: &::trash::TrashItem, original: &Path) -> bool {
+    let same = |a: &std::ffi::OsStr, b: &std::ffi::OsStr| {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    };
+    let (Some(parent), Some(name)) = (original.parent(), original.file_name()) else {
+        return false;
+    };
+    let stem = original.file_stem().unwrap_or(name);
+    same(item.original_parent.as_os_str(), parent.as_os_str())
+        && (same(&item.name, name) || same(&item.name, stem))
 }
 
 fn on_fixed_drive(path: &Path) -> bool {

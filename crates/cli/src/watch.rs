@@ -27,6 +27,9 @@ struct Watch {
     /// forgetting right away would throw out the text of a file that only
     /// moved.
     leaving: HashMap<PathBuf, Instant>,
+    /// The last thing renamed away, for pairing with the new name when the
+    /// two arrive as separate events.
+    last_from: Option<PathBuf>,
     /// Folders that appeared (made, or moved in) whose files no event will
     /// ever mention: the watch on them starts after they were filled.
     arrived: Vec<PathBuf>,
@@ -62,6 +65,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         folders: fixed.clone().unwrap_or(config.folders),
         pending: HashMap::new(),
         leaving: HashMap::new(),
+        last_from: None,
         arrived: Vec::new(),
         rescan: false,
     };
@@ -399,6 +403,29 @@ impl Watch {
         self.arrived.push(to.to_path_buf());
     }
 
+    /// `from` became `to`, both known.
+    fn renamed(&mut self, from: &Path, to: &Path, now: Instant) {
+        self.leaving.remove(from);
+        if to.is_dir() {
+            self.move_folder(from, to);
+        } else if indexer::is_image(from) && indexer::is_image(to) && self.reads(to) {
+            match self.indexer.rename(from, to) {
+                Ok(true) => eprintln!("moved {} -> {}", from.display(), to.display()),
+                Ok(false) => {
+                    self.pending.insert(to.to_path_buf(), now);
+                }
+                Err(e) => eprintln!("failed to move {}: {e:#}", from.display()),
+            }
+        } else {
+            if indexer::is_image(from) {
+                forget(&mut self.indexer, from);
+            }
+            if indexer::is_image(to) && self.reads(to) {
+                self.pending.insert(to.to_path_buf(), now);
+            }
+        }
+    }
+
     fn on_event(&mut self, event: Event) {
         let now = Instant::now();
         if event.need_rescan() {
@@ -416,10 +443,16 @@ impl Watch {
                     self.forget_all(path);
                 }
             }
+            // Windows only ever says "removed", folder or not, so a path with
+            // no extension is taken to maybe be a folder.
             EventKind::Remove(_) => {
-                for path in images {
-                    self.pending.remove(&path);
-                    forget(&mut self.indexer, &path);
+                for path in &event.paths {
+                    if indexer::is_image(path) {
+                        self.pending.remove(path);
+                        forget(&mut self.indexer, path);
+                    } else if path.extension().is_none() {
+                        self.forget_all(path);
+                    }
                 }
             }
             // Something renamed away: maybe a shot, maybe a whole folder.
@@ -428,28 +461,26 @@ impl Watch {
                     self.pending.remove(path);
                     self.leaving.insert(path.clone(), now);
                 }
+                self.last_from = event.paths.last().cloned();
             }
             // A rename inside the watched folders, finally with both names.
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
-                let (from, to) = (&event.paths[0], &event.paths[1]);
-                self.leaving.remove(from);
-                if to.is_dir() {
-                    self.move_folder(from, to);
-                } else if indexer::is_image(from) && indexer::is_image(to) && self.reads(to) {
-                    match self.indexer.rename(from, to) {
-                        Ok(true) => eprintln!("moved {} -> {}", from.display(), to.display()),
-                        Ok(false) => {
-                            self.pending.insert(to.clone(), now);
-                        }
-                        Err(e) => eprintln!("failed to move {}: {e:#}", from.display()),
-                    }
-                } else {
-                    if indexer::is_image(from) {
-                        forget(&mut self.indexer, from);
-                    }
-                    if indexer::is_image(to) && self.reads(to) {
-                        self.pending.insert(to.clone(), now);
-                    }
+                let (from, to) = (event.paths[0].clone(), event.paths[1].clone());
+                self.renamed(&from, &to, now);
+            }
+            // Windows never sends both names together: the new one comes
+            // right after the old one, so they're paired here. inotify sends
+            // the pair afterwards as well, which then finds nothing left to
+            // do.
+            EventKind::Modify(ModifyKind::Name(RenameMode::To))
+                if self
+                    .last_from
+                    .as_ref()
+                    .is_some_and(|from| self.leaving.contains_key(from)) =>
+            {
+                let from = self.last_from.take().expect("checked above");
+                for to in &event.paths {
+                    self.renamed(&from, to, now);
                 }
             }
             // Moved in from outside: a folder brings files nobody mentions.
