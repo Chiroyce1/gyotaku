@@ -23,6 +23,7 @@ use gyotaku_core::{Config, Hit, Index, Line, Rect, Shot, ThemeChoice};
 use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
 use crate::input::{Changed, TextInput};
+use crate::keys;
 use crate::spring::Spring;
 use crate::stats::FrameStats;
 use crate::theme::Theme;
@@ -209,7 +210,7 @@ enum Page {
 struct Toast {
     message: SharedString,
     /// A key hint shown after the message, like "ctrl z undo".
-    keys: Option<(&'static str, &'static str)>,
+    keys: Option<(SharedString, &'static str)>,
     id: usize,
     leaving: bool,
 }
@@ -393,6 +394,9 @@ impl Gyotaku {
         // A question left hanging would greet the next summon with a
         // trash prompt nobody remembers asking for.
         self.confirming = false;
+        // Listening for a new shortcut means every binding is lifted. Hidden
+        // mid-listen, they'd stay lifted until settings came back.
+        self.stop_recording(cx);
         self.stats.report();
         self.thumbs.shrink_to(THUMBS_KEPT_HIDDEN, cx);
         self.full.shrink_to(1, cx);
@@ -804,7 +808,8 @@ impl Gyotaku {
             (n, f) => format!("moved {}, {} couldn't be moved", thousands(n), thousands(f)),
         };
         if moved > 0 {
-            self.flash_with(message, Some(("ctrl z", "undo")), TOAST_UNDO, cx);
+            let undo = keys::shown("undo", cx);
+            self.flash_with(message, Some((undo, "undo")), TOAST_UNDO, cx);
         } else {
             self.flash(message, cx);
         }
@@ -1131,7 +1136,7 @@ impl Gyotaku {
     fn flash_with(
         &mut self,
         message: impl Into<SharedString>,
-        keys: Option<(&'static str, &'static str)>,
+        keys: Option<(SharedString, &'static str)>,
         shown: Duration,
         cx: &mut Context<Self>,
     ) {
@@ -1487,16 +1492,20 @@ impl Gyotaku {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.open_settings(window, cx)
                     }))
-                    .child(hint("ctrl ,", "settings", theme)),
+                    .child(hint(keys::shown("settings", cx), "settings", theme)),
             )
             .into_any_element()
     }
 
-    fn render_empty(&self, theme: Theme) -> impl IntoElement + use<> {
+    fn render_empty(&self, theme: Theme, cx: &App) -> impl IntoElement + use<> {
         let (title, body): (SharedString, SharedString) = if self.searchable == 0 {
             (
                 "nothing read yet".into(),
-                "screenshots show up here as they're read. if nothing happens, check settings (ctrl ,)".into(),
+                format!(
+                    "screenshots show up here as they're read. if nothing happens, check settings ({})",
+                    keys::shown("settings", cx)
+                )
+                .into(),
             )
         } else {
             (
@@ -1721,10 +1730,10 @@ impl Gyotaku {
                         .gap_5()
                         .opacity(chrome)
                         .child(hint("esc", "back", theme))
-                        .child(hint("ctrl c", "copy text", theme))
-                        .child(hint("ctrl shift c", "copy image", theme))
+                        .child(hint(keys::shown("copy_text", cx), "copy text", theme))
+                        .child(hint(keys::shown("copy_image", cx), "copy image", theme))
                         .child(hint("enter", "open", theme))
-                        .child(hint("ctrl del", "trash", theme))
+                        .child(hint(keys::shown("trash", cx), "trash", theme))
                         .child(hint("\u{2190} \u{2192}", "next", theme)),
                 )
                 .into_any_element(),
@@ -1817,7 +1826,7 @@ impl Gyotaku {
                 )
                 .child(button(
                     "bar-trash",
-                    "ctrl del",
+                    keys::shown("trash", cx),
                     "move to trash",
                     theme,
                     cx.listener(|this, _, _, cx| {
@@ -1828,7 +1837,7 @@ impl Gyotaku {
                 .when(state.can_mark_more, |row| {
                     row.child(button(
                         "bar-all",
-                        "ctrl shift a",
+                        keys::shown("mark_all", cx),
                         "mark all",
                         theme,
                         cx.listener(|this, _, window, cx| this.mark_all(&MarkAll, window, cx)),
@@ -1924,7 +1933,7 @@ impl Gyotaku {
                         .items_center()
                         .gap_3()
                         .child(toast.message.clone())
-                        .children(toast.keys.map(|(keys, what)| {
+                        .children(toast.keys.clone().map(|(keys, what)| {
                             div()
                                 .flex()
                                 .items_center()
@@ -1988,11 +1997,11 @@ impl Render for Gyotaku {
 
         let toast = self.render_toast(theme);
         let mut content: Vec<AnyElement> = match self.page {
-            Page::Settings(_) => vec![self.render_settings(theme, cx)],
+            Page::Settings(_) => vec![self.render_settings(theme, window, cx)],
             Page::Onboarding(_) => vec![self.render_onboarding(theme, cx)],
             Page::Search => {
                 let body: AnyElement = if self.hits.is_empty() {
-                    self.render_empty(theme).into_any_element()
+                    self.render_empty(theme, cx).into_any_element()
                 } else {
                     list(self.list.clone(), cx.processor(Self::render_row))
                         .flex_1()
@@ -2015,7 +2024,12 @@ impl Render for Gyotaku {
                 .track_focus(&self.panel_focus)
                 .on_action(cx.listener(Self::toggle))
                 .on_action(cx.listener(Self::remove))
+                .on_key_down(cx.listener(Self::panel_key_down))
                 .flex_1()
+                // Without this a flex item is at least as tall as what's in
+                // it, so a long settings page pushes past the window instead
+                // of scrolling inside it.
+                .min_h(px(0.))
                 .flex()
                 .flex_col()
                 .children(content.drain(..))
@@ -2090,7 +2104,7 @@ fn check(color: Hsla) -> impl IntoElement {
 /// A key hint that can also be clicked, for whoever reached for the mouse.
 fn button(
     id: &'static str,
-    keys: &'static str,
+    keys: impl Into<SharedString>,
     what: &'static str,
     theme: Theme,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -2106,7 +2120,8 @@ fn button(
         .child(hint(keys, what, theme))
 }
 
-fn hint(keys: &'static str, what: &'static str, theme: Theme) -> impl IntoElement {
+fn hint(keys: impl Into<SharedString>, what: &'static str, theme: Theme) -> impl IntoElement {
+    let keys: SharedString = keys.into();
     div()
         .flex()
         .items_center()

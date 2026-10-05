@@ -43,6 +43,8 @@ While a query is active, each thumbnail is dimmed and the matched lines are high
 | Ctrl+Z | Put back what was last moved to the trash | |
 | Escape | Cancel a pending move, clear marks, clear the search, then close the window | Return to the grid |
 
+The command shortcuts above are defaults and can be changed in settings, see [Settings](#settings). Changes are stored in `config.toml` under `[keys]`, for example `trash = "ctrl-backspace"`; an entry that is invalid or already in use falls back to the default.
+
 The shortcut bound to `gyotaku-app` also closes the window. When reopened, the window restores its previous state: the same query, selection and open screenshot.
 
 ## Moving screenshots to the trash
@@ -74,6 +76,7 @@ Open settings with Ctrl+,.
 | Background indexing | Enables or disables the background indexer. See [Background indexing](#background-indexing). |
 | Cores per screenshot | Number of CPU cores used to read a single screenshot. Higher values are faster; lower values leave more capacity for other work. Indexing always runs at idle priority. |
 | Thumbnail cache | Clears cached thumbnails. They are regenerated on demand. |
+| Shortcuts | Lists every keyboard shortcut. Select a command and press Enter, then press the new keys; Escape cancels and Delete restores the default. New keys must include Ctrl, Alt or Super (or be a function key) and must not already be in use. Navigation keys (Escape, Enter, arrows, Page Up and Page Down, Shift+arrows) are fixed. |
 
 Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list without a restart.
 

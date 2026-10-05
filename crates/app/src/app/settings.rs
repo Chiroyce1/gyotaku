@@ -8,12 +8,13 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt as _, AnyElement, ClickEvent, Context, CursorStyle, ElementId,
-    Focusable as _, FontWeight, MouseMoveEvent, PathPromptOptions, SharedString, Window, div,
-    ease_out_quint, prelude::*, px,
+    Focusable as _, FontWeight, KeyDownEvent, MouseMoveEvent, PathPromptOptions, ScrollHandle,
+    SharedString, Window, div, ease_out_quint, prelude::*, px,
 };
 use gyotaku_core::{Config, ThemeChoice, tidy};
 
 use super::{Gyotaku, Page, hint, thousands};
+use crate::keys::{self, SHORTCUTS};
 use crate::setup::{self, Candidate, Counts, Service};
 use crate::theme::Theme;
 
@@ -36,6 +37,11 @@ pub(super) struct Settings {
     shots: Vec<usize>,
     /// Index and thumbnail cache sizes, filled in from a background thread.
     sizes: Option<(u64, u64)>,
+    /// The shortcut waiting for its new keys, by its place in SHORTCUTS.
+    recording: Option<usize>,
+    scroll: ScrollHandle,
+    /// The cursor moved by keyboard, so its row gets scrolled into view.
+    reveal: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -46,6 +52,7 @@ enum Row {
     Background,
     Threads,
     ClearThumbs,
+    Shortcut(usize),
 }
 
 impl Settings {
@@ -58,6 +65,7 @@ impl Settings {
             Row::Threads,
             Row::ClearThumbs,
         ]);
+        rows.extend((0..SHORTCUTS.len()).map(Row::Shortcut));
         rows
     }
 }
@@ -111,6 +119,9 @@ impl Gyotaku {
             service: setup::service_status(),
             shots,
             sizes: None,
+            recording: None,
+            scroll: ScrollHandle::new(),
+            reveal: false,
         });
         window.focus(&self.panel_focus, cx);
 
@@ -197,20 +208,30 @@ impl Gyotaku {
     }
 
     pub(super) fn leave_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_recording(cx);
         self.page = Page::Search;
         window.focus(&self.input.focus_handle(cx), cx);
         cx.notify();
     }
 
     pub(super) fn panel_key(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        // While a shortcut listens no keys are bound, so this can only be a
+        // click, somewhere else. That's a change of mind.
+        self.stop_recording(cx);
         match &mut self.page {
             Page::Search => {}
             Page::Settings(s) => {
                 let rows = s.rows();
                 let row = rows.get(s.cursor).copied();
                 match key {
-                    Key::Up => s.cursor = s.cursor.saturating_sub(1),
-                    Key::Down => s.cursor = (s.cursor + 1).min(rows.len() - 1),
+                    Key::Up => {
+                        s.cursor = s.cursor.saturating_sub(1);
+                        s.reveal = true;
+                    }
+                    Key::Down => {
+                        s.cursor = (s.cursor + 1).min(rows.len() - 1);
+                        s.reveal = true;
+                    }
                     Key::Left | Key::Right => {
                         let forward = matches!(key, Key::Right);
                         match row {
@@ -231,13 +252,14 @@ impl Gyotaku {
                         }
                         Some(Row::Threads) => self.change_threads(1, cx),
                         Some(Row::ClearThumbs) => self.clear_thumbnails(cx),
+                        Some(Row::Shortcut(i)) => self.start_recording(i, cx),
                         Some(Row::Folder(_)) | None => {}
                     },
-                    Key::Remove => {
-                        if let Some(Row::Folder(i)) = row {
-                            self.remove_folder(i, cx);
-                        }
-                    }
+                    Key::Remove => match row {
+                        Some(Row::Folder(i)) => self.remove_folder(i, cx),
+                        Some(Row::Shortcut(i)) => self.reset_shortcut(i, cx),
+                        _ => {}
+                    },
                 }
             }
             Page::Onboarding(o) => {
@@ -347,6 +369,87 @@ impl Gyotaku {
             s.config = config;
         }
         cx.notify();
+    }
+
+    /// Waits for the next keys pressed, which become the shortcut. Every
+    /// binding is lifted meanwhile, or pressing ctrl c to bind it would copy.
+    fn start_recording(&mut self, i: usize, cx: &mut Context<Self>) {
+        if let Page::Settings(s) = &mut self.page {
+            s.recording = Some(i);
+            cx.clear_key_bindings();
+        }
+    }
+
+    /// Back to listening for shortcuts, with whatever is saved now.
+    pub(super) fn stop_recording(&mut self, cx: &mut Context<Self>) {
+        if let Page::Settings(s) = &mut self.page
+            && s.recording.take().is_some()
+        {
+            let overrides = s.config.keys.clone();
+            keys::bind_all(cx, &overrides);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn panel_key_down(
+        &mut self,
+        e: &KeyDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Page::Settings(s) = &self.page else {
+            return;
+        };
+        let Some(i) = s.recording else {
+            return;
+        };
+        cx.stop_propagation();
+        let k = &e.keystroke;
+        if k.key == "escape" && !k.modifiers.modified() {
+            return self.stop_recording(cx);
+        }
+        let key = k.unparse();
+        // A refusal keeps listening, so the next try can just be pressed.
+        if let Err(why) = keys::usable(&key) {
+            return self.flash(why, cx);
+        }
+        let mut config = s.config.clone();
+        if let Some(j) = keys::taken_by(&key, i, &config.keys) {
+            return self.flash(
+                format!("{} is already {}", keys::pretty(&key), SHORTCUTS[j].label),
+                cx,
+            );
+        }
+        let shortcut = &SHORTCUTS[i];
+        if key == shortcut.default {
+            config.keys.remove(shortcut.name);
+        } else {
+            config.keys.insert(shortcut.name.into(), key.clone());
+        }
+        self.save(config, cx);
+        self.stop_recording(cx);
+        self.flash(
+            format!("{} is {} now", shortcut.label, keys::pretty(&key)),
+            cx,
+        );
+    }
+
+    fn reset_shortcut(&mut self, i: usize, cx: &mut Context<Self>) {
+        let mut config = self.current_config();
+        let shortcut = &SHORTCUTS[i];
+        if config.keys.remove(shortcut.name).is_none() {
+            return;
+        }
+        keys::bind_all(cx, &config.keys);
+        self.save(config, cx);
+        self.flash(
+            format!(
+                "{} is back to {}",
+                shortcut.label,
+                keys::pretty(shortcut.default)
+            ),
+            cx,
+        );
     }
 
     fn current_config(&self) -> Config {
@@ -555,7 +658,12 @@ impl Gyotaku {
             }))
     }
 
-    pub(super) fn render_settings(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_settings(
+        &mut self,
+        theme: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Page::Settings(s) = &self.page else {
             return div().into_any_element();
         };
@@ -566,20 +674,26 @@ impl Gyotaku {
         let service = s.service;
         let sizes = s.sizes;
 
-        let mut list = div().flex().flex_col().gap_1();
-        let section = |list: gpui::Div, title: &'static str| {
-            list.child(
-                div()
-                    .px(px(14.))
-                    .pt(px(18.))
-                    .pb(px(4.))
-                    .text_xs()
-                    .text_color(theme.muted)
-                    .child(title),
-            )
+        let recording = s.recording;
+        let scroll = s.scroll.clone();
+        let reveal = s.reveal;
+
+        // Rows are direct children of the scrolling column, so the one under
+        // the cursor can be scrolled into view by its place.
+        let mut list: Vec<AnyElement> = Vec::new();
+        let mut cursor_child = 0;
+        let section = |title: &'static str| {
+            div()
+                .px(px(14.))
+                .pt(px(18.))
+                .pb(px(4.))
+                .text_xs()
+                .text_color(theme.muted)
+                .child(title)
+                .into_any_element()
         };
 
-        list = section(list, "folders it reads");
+        list.push(section("folders it reads"));
         for (ix, row) in rows.iter().enumerate() {
             let selected = ix == cursor;
             let el = match *row {
@@ -619,7 +733,7 @@ impl Gyotaku {
                     )
                     .into_any_element(),
                 Row::Theme => {
-                    list = section(list, "look");
+                    list.push(section("look"));
                     self.row(ix, selected, theme, cx, Key::Right)
                         .child(div().flex_1().child("theme"))
                         .child(segmented(
@@ -634,7 +748,7 @@ impl Gyotaku {
                         .into_any_element()
                 }
                 Row::Background => {
-                    list = section(list, "reading");
+                    list.push(section("reading"));
                     let (on, status): (bool, SharedString) = match service {
                         Service::Running => (
                             true,
@@ -670,7 +784,7 @@ impl Gyotaku {
                         .into_any_element()
                 }
                 Row::ClearThumbs => {
-                    list = section(list, "storage");
+                    list.push(section("storage"));
                     let text: SharedString = match sizes {
                         Some((index, thumbs)) => {
                             format!("text {}, thumbnails {}", mb(index), mb(thumbs)).into()
@@ -689,12 +803,83 @@ impl Gyotaku {
                         .child(hint("enter", "clear", theme))
                         .into_any_element()
                 }
+                Row::Shortcut(k) => {
+                    if k == 0 {
+                        list.push(section("shortcuts"));
+                    }
+                    let shortcut = &SHORTCUTS[k];
+                    let bound = keys::current(k, &config.keys);
+                    let changed = bound != shortcut.default;
+                    let listening = recording == Some(k);
+                    self.row(ix, selected, theme, cx, Key::Enter)
+                        .child(div().flex_1().flex().flex_col().child(shortcut.label).when(
+                            changed,
+                            |d| {
+                                d.child(div().text_xs().text_color(theme.muted).child(format!(
+                                    "changed from {}",
+                                    keys::pretty(shortcut.default)
+                                )))
+                            },
+                        ))
+                        .when(selected && changed && !listening, |r| {
+                            r.child(hint("del", "reset", theme))
+                        })
+                        .child(keycap(k, &bound, listening, theme))
+                        .into_any_element()
+                }
             };
-            list = list.child(el);
+            if ix == cursor {
+                cursor_child = list.len();
+            }
+            list.push(el);
         }
+        // The keys that don't change, listed so this is the one place to
+        // look any of them up.
+        list.push(
+            div()
+                .px(px(14.))
+                .pt_3()
+                .flex()
+                .flex_wrap()
+                .gap_x_5()
+                .gap_y_2()
+                .text_color(theme.muted)
+                .children(keys::FIXED.iter().map(|(k, what)| hint(*k, what, theme)))
+                .into_any_element(),
+        );
+
+        // The first frame hasn't been laid out yet, so there's no telling
+        // whether a scrollbar is needed until the next one.
+        if scroll.bounds().size.height <= px(0.) {
+            window.request_animation_frame();
+        }
+        if reveal {
+            scroll.scroll_to_item(cursor_child);
+            // The scroll happens while this frame lays out, after the
+            // scrollbar below was placed, so one more frame puts it right.
+            window.request_animation_frame();
+            if let Page::Settings(s) = &mut self.page {
+                s.reveal = false;
+            }
+        }
+        let footer = if recording.is_some() {
+            div()
+                .flex()
+                .gap_5()
+                .child(div().child("press the new keys"))
+                .child(hint("esc", "cancel", theme))
+        } else {
+            div()
+                .flex()
+                .gap_5()
+                .child(hint("\u{2191} \u{2193}", "move", theme))
+                .child(hint("\u{2190} \u{2192}", "change", theme))
+                .child(div().child(format!("gyotaku {}", env!("CARGO_PKG_VERSION"))))
+        };
 
         div()
             .flex_1()
+            .min_h(px(0.))
             .flex()
             .flex_col()
             .child(
@@ -712,12 +897,30 @@ impl Gyotaku {
             )
             .child(
                 div()
-                    .id("settings")
+                    .relative()
                     .flex_1()
-                    .overflow_y_scroll()
+                    .min_h(px(0.))
                     .flex()
-                    .justify_center()
-                    .child(div().w(px(620.)).max_w_full().px_4().pb_6().child(list)),
+                    .flex_col()
+                    .child(
+                        div()
+                            .id("settings")
+                            .track_scroll(&scroll)
+                            .flex_1()
+                            .min_h(px(0.))
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_1()
+                            .pb_6()
+                            .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
+                            .children(
+                                list.into_iter()
+                                    .map(|el| div().w(px(620.)).max_w_full().px_4().child(el)),
+                            ),
+                    )
+                    .children(scrollbar(&scroll, theme)),
             )
             .child(
                 div()
@@ -726,12 +929,9 @@ impl Gyotaku {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .gap_5()
                     .text_xs()
                     .text_color(theme.faint)
-                    .child(hint("\u{2191} \u{2193}", "move", theme))
-                    .child(hint("\u{2190} \u{2192}", "change", theme))
-                    .child(div().child(format!("gyotaku {}", env!("CARGO_PKG_VERSION")))),
+                    .child(footer),
             )
             .into_any_element()
     }
@@ -848,6 +1048,7 @@ impl Gyotaku {
 
         div()
             .flex_1()
+            .min_h(px(0.))
             .flex()
             .flex_col()
             .items_center()
@@ -855,6 +1056,7 @@ impl Gyotaku {
                 div()
                     .id("onboarding")
                     .flex_1()
+                    .min_h(px(0.))
                     .w(px(620.))
                     .max_w_full()
                     .px_4()
@@ -925,6 +1127,62 @@ fn switch(id: impl Into<ElementId>, on: bool, theme: Theme) -> impl IntoElement 
                     Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()),
                     move |knob, t| knob.left(px(from + (to - from) * t)),
                 ),
+        )
+}
+
+/// Only there when there's more than fits, so its being there at all says
+/// "keep scrolling". Sized and placed like any scrollbar: the thumb is the
+/// share of the page on screen, at where the screen is.
+fn scrollbar(handle: &ScrollHandle, theme: Theme) -> Option<impl IntoElement + use<>> {
+    let max = handle.max_offset().y.as_f32();
+    let height = handle.bounds().size.height.as_f32();
+    if max <= 1.0 || height <= 0.0 {
+        return None;
+    }
+    let offset = (-handle.offset().y.as_f32()).clamp(0.0, max);
+    let pad = 6.0;
+    let track = height - pad * 2.0;
+    let thumb = (track * height / (height + max)).max(32.0);
+    let top = pad + (track - thumb) * offset / max;
+    Some(
+        div()
+            .absolute()
+            .right(px(6.))
+            .top(px(top))
+            .w(px(5.))
+            .h(px(thumb))
+            .rounded_full()
+            .bg(theme.faint),
+    )
+}
+
+/// A shortcut's keys. While it listens for new ones it says so, outlined
+/// in ink, and whatever it shows fades in when it changes.
+fn keycap(k: usize, bound: &str, listening: bool, theme: Theme) -> impl IntoElement {
+    let text: SharedString = if listening {
+        "press keys\u{2026}".into()
+    } else {
+        keys::pretty(bound)
+    };
+    div()
+        .flex_none()
+        .px(px(8.))
+        .py(px(3.))
+        .rounded(px(6.))
+        .text_sm()
+        .bg(theme.keycap)
+        .border_1()
+        .border_color(if listening {
+            theme.text
+        } else {
+            theme.hairline
+        })
+        .text_color(if listening { theme.muted } else { theme.text })
+        .child(text.clone())
+        .with_animation(
+            ElementId::Name(format!("cap-{k}-{text}").into()),
+            Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
+            |el, t| el.opacity(0.5 + 0.5 * t),
         )
 }
 

@@ -1,6 +1,7 @@
 //! `~/.config/gyotaku/config.toml`, shared by the app (which writes it from
 //! onboarding and settings) and the watcher (which follows it live).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -23,6 +24,10 @@ pub struct Config {
     pub theme: ThemeChoice,
     /// Cores one screenshot may use while being read.
     pub threads: usize,
+    /// Shortcuts changed from their defaults, by name, like
+    /// `trash = "ctrl-backspace"`. Only the changed ones are written.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub keys: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -31,6 +36,7 @@ impl Default for Config {
             folders: pictures_dir().into_iter().collect(),
             theme: ThemeChoice::System,
             threads: default_threads(),
+            keys: BTreeMap::new(),
         }
     }
 }
@@ -134,9 +140,23 @@ mod tests {
             folders: vec!["/a/b".into(), "/c".into()],
             theme: ThemeChoice::Dark,
             threads: 2,
+            keys: BTreeMap::from([("trash".into(), "ctrl-backspace".into())]),
         };
         config.save_to(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("[keys]\ntrash = \"ctrl-backspace\""),
+            "{text}"
+        );
         assert_eq!(Config::load_from(&path).unwrap(), Some(config));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn unchanged_shortcuts_leave_no_trace() {
+        let path = scratch("nokeys");
+        Config::default().save_to(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("keys"));
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

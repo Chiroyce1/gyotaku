@@ -2,6 +2,7 @@ mod app;
 mod grid;
 mod images;
 mod input;
+mod keys;
 mod resident;
 mod setup;
 mod spring;
@@ -13,7 +14,7 @@ use std::borrow::Cow;
 use anyhow::Result;
 use futures::StreamExt as _;
 use gpui::{
-    App, AppContext, Bounds, Entity, Global, KeyBinding, QuitMode, Size, TitlebarOptions,
+    App, AppContext, Bounds, Entity, Global, QuitMode, Size, TitlebarOptions,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, px, size,
 };
 use gpui_platform::application;
@@ -61,7 +62,7 @@ fn main() -> Result<()> {
             cx.text_system()
                 .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
                 .expect("the bundled fonts load");
-            bind_keys(cx);
+            keys::bind_all(cx, &gyotaku_core::Config::load_or_default().keys);
             cx.set_global(Launch {
                 windowed,
                 resident: listener.is_some(),
@@ -159,45 +160,6 @@ fn keep_big_allocations_off_the_heap() {
     unsafe {
         libc::mallopt(libc::M_MMAP_THRESHOLD, 128 * 1024);
     }
-}
-
-fn bind_keys(cx: &mut App) {
-    use app::*;
-    use input::*;
-    cx.bind_keys([
-        KeyBinding::new("escape", Back, Some("Gyotaku")),
-        KeyBinding::new("enter", Open, Some("Gyotaku")),
-        KeyBinding::new("up", Up, Some("Gyotaku")),
-        KeyBinding::new("down", Down, Some("Gyotaku")),
-        KeyBinding::new("left", Left, Some("Gyotaku")),
-        KeyBinding::new("right", Right, Some("Gyotaku")),
-        KeyBinding::new("pageup", PageUp, Some("Gyotaku")),
-        KeyBinding::new("pagedown", PageDown, Some("Gyotaku")),
-        KeyBinding::new("ctrl-c", CopyText, Some("Gyotaku")),
-        KeyBinding::new("ctrl-shift-c", CopyImage, Some("Gyotaku")),
-        KeyBinding::new("ctrl-o", OpenExternal, Some("Gyotaku")),
-        KeyBinding::new("ctrl-shift-o", Reveal, Some("Gyotaku")),
-        KeyBinding::new("ctrl-q", Quit, Some("Gyotaku")),
-        KeyBinding::new("ctrl-,", OpenSettings, Some("Gyotaku")),
-        KeyBinding::new("shift-up", MarkUp, Some("Gyotaku")),
-        KeyBinding::new("shift-down", MarkDown, Some("Gyotaku")),
-        KeyBinding::new("shift-left", MarkLeft, Some("Gyotaku")),
-        KeyBinding::new("shift-right", MarkRight, Some("Gyotaku")),
-        KeyBinding::new("ctrl-shift-a", MarkAll, Some("Gyotaku")),
-        KeyBinding::new("ctrl-delete", Trash, Some("Gyotaku")),
-        KeyBinding::new("ctrl-z", Undo, Some("Gyotaku")),
-        KeyBinding::new("space", Toggle, Some("Panel")),
-        KeyBinding::new("delete", Remove, Some("Panel")),
-        KeyBinding::new("backspace", Remove, Some("Panel")),
-        KeyBinding::new("backspace", Backspace, Some("TextInput")),
-        KeyBinding::new("ctrl-backspace", DeleteWord, Some("TextInput")),
-        KeyBinding::new("delete", Delete, Some("TextInput")),
-        KeyBinding::new("ctrl-a", SelectAll, Some("TextInput")),
-        KeyBinding::new("home", Home, Some("TextInput")),
-        KeyBinding::new("end", End, Some("TextInput")),
-        KeyBinding::new("ctrl-v", Paste, Some("TextInput")),
-        KeyBinding::new("ctrl-x", Cut, Some("TextInput")),
-    ]);
 }
 
 /// A generous palette, but never more than most of the screen.
