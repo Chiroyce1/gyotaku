@@ -114,6 +114,13 @@ fn index(dirs: &[PathBuf], threads: usize) -> Result<()> {
     for (i, path) in files.iter().enumerate() {
         match indexer.index_file(path) {
             Ok(Outcome::Unchanged | Outcome::Thumbnail) => continue,
+            Ok(Outcome::NotYet) => {
+                eprintln!(
+                    "[{:>5}/{total}] still being written, run again later: {}",
+                    i + 1,
+                    path.display()
+                )
+            }
             Ok(Outcome::Indexed { lines, took }) => {
                 done += 1;
                 let eta = started.elapsed() / done * (total - i - 1) as u32;

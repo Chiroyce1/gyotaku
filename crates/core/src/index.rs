@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
+use rusqlite::{
+    Connection, OptionalExtension, TransactionBehavior, params, params_from_iter, types::Value,
+};
 
 use crate::{Line, Rect, Shot};
 
@@ -69,17 +71,34 @@ impl Index {
         db.pragma_update(None, "synchronous", "NORMAL")?;
         db.pragma_update(None, "foreign_keys", true)?;
 
-        let version: i32 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        // The app and the watcher can both open a brand new index at the same
+        // moment. Checking and creating the tables under one write lock means
+        // one of them does it and the other finds it done.
+        let mut db = db;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let version: i32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version != SCHEMA {
-            db.execute_batch(
+            tx.execute_batch(
                 "DROP TABLE IF EXISTS shots_fts;
                  DROP TABLE IF EXISTS lines;
                  DROP TABLE IF EXISTS shots;",
             )?;
-            db.execute_batch(TABLES)?;
-            db.pragma_update(None, "user_version", SCHEMA)?;
+            tx.execute_batch(TABLES)?;
+            tx.pragma_update(None, "user_version", SCHEMA)?;
         }
+        tx.commit()?;
         Ok(Self { db })
+    }
+
+    /// Every change reads first (is that path already there?) and then
+    /// writes. A plain transaction would only ask for the write lock halfway
+    /// through, and if the other process (the app or the watcher) wrote in
+    /// between, SQLite gives up at once instead of waiting. Taking the lock
+    /// up front waits out the busy timeout like any other write.
+    fn write(&mut self) -> Result<rusqlite::Transaction<'_>> {
+        Ok(self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?)
     }
 
     /// True if this exact file (same path, same mtime) is already indexed.
@@ -110,7 +129,7 @@ impl Index {
 
     /// Stores a shot and its lines, replacing whatever was there for the same path.
     pub fn insert(&mut self, shot: &Shot, lines: &[Line]) -> Result<i64> {
-        let tx = self.db.transaction()?;
+        let tx = self.write()?;
         let path = path_str(&shot.path);
         delete(&tx, &path)?;
 
@@ -150,7 +169,7 @@ impl Index {
     /// Moves a shot to a new path without touching its text, since a rename
     /// doesn't change a single pixel. Returns false if `from` wasn't indexed.
     pub fn rename(&mut self, from: &Path, to: &Path) -> Result<bool> {
-        let tx = self.db.transaction()?;
+        let tx = self.write()?;
         delete(&tx, &path_str(to))?;
         let moved = tx.execute(
             "UPDATE shots SET path = ?2 WHERE path = ?1",
@@ -162,7 +181,7 @@ impl Index {
 
     /// Returns whether there was anything to remove.
     pub fn remove(&mut self, path: &Path) -> Result<bool> {
-        let tx = self.db.transaction()?;
+        let tx = self.write()?;
         let removed = delete(&tx, &path_str(path))?;
         tx.commit()?;
         Ok(removed)

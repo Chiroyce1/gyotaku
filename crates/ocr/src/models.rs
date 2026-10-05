@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
@@ -195,8 +196,17 @@ fn extract(archive: &[u8], inner: &str) -> Result<Option<Vec<u8>>> {
 /// a changed or truncated file upstream fails loudly instead of quietly
 /// reading text differently.
 fn fetch(url: &str, sha256: &str) -> Result<Vec<u8>> {
+    // With no limits a stalled connection waits forever, and never gets to
+    // try the next source. Generous ones: a 78 MB archive on a slow line.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_recv_response(Some(Duration::from_secs(30)))
+        .timeout_recv_body(Some(Duration::from_secs(600)))
+        .build()
+        .into();
     let mut bytes = Vec::new();
-    ureq::get(url)
+    agent
+        .get(url)
         .call()
         .with_context(|| format!("downloading {url}"))?
         .into_body()
@@ -214,7 +224,11 @@ fn fetch(url: &str, sha256: &str) -> Result<Vec<u8>> {
 /// like a real one.
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::create_dir_all(path.parent().context("no parent folder")?)?;
-    let part = path.with_extension("part");
+    // Named per process, so two first runs at once (the app and the watcher,
+    // say) can't write into the same half-finished file.
+    let mut part = path.as_os_str().to_owned();
+    part.push(format!(".{}.part", std::process::id()));
+    let part = PathBuf::from(part);
     fs::write(&part, bytes)?;
     fs::rename(&part, path)?;
     Ok(())

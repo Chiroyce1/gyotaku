@@ -30,8 +30,8 @@ impl Ocr {
     /// cores one screenshot may use.
     pub fn new(threads: usize) -> Result<Self> {
         load_runtime()?;
-        let det = session(&models::ensure(&models::DET)?, threads)?;
-        let rec = session(&models::ensure(&models::REC)?, threads)?;
+        let det = load(&models::DET, threads)?;
+        let rec = load(&models::REC, threads)?;
         let alphabet = rec::alphabet(&rec)?;
         Ok(Self { det, rec, alphabet })
     }
@@ -83,6 +83,16 @@ fn load_runtime() -> Result<()> {
         .commit();
     let _ = LOADED.set(());
     Ok(())
+}
+
+/// A model file that won't load is damaged (a disk filling up mid-write, a
+/// file someone edited): it's deleted, so the next start downloads it again
+/// instead of failing the same way forever.
+fn load(model: &models::Model, threads: usize) -> Result<Session> {
+    let path = models::ensure(model)?;
+    session(&path, threads).inspect_err(|_| {
+        let _ = std::fs::remove_file(&path);
+    })
 }
 
 fn session(model: &Path, threads: usize) -> Result<Session> {

@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use notify::event::{AccessKind, AccessMode, ModifyKind, RenameMode};
+use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind, RenameMode};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 use gyotaku_core::{Config, status};
@@ -18,12 +18,21 @@ const SETTLE: Duration = Duration::from_millis(400);
 
 struct Watch {
     indexer: Indexer,
+    /// The folders being read right now.
+    folders: Vec<PathBuf>,
     /// Files that changed recently, read once they've been quiet for SETTLE.
     pending: HashMap<PathBuf, Instant>,
-    /// Files that were renamed away. inotify reports the old name first and
-    /// only pairs it with the new one in a later event, so forgetting right
-    /// away would throw out the text of a file that only moved.
+    /// Files (or folders) that were renamed away. inotify reports the old
+    /// name first and only pairs it with the new one in a later event, so
+    /// forgetting right away would throw out the text of a file that only
+    /// moved.
     leaving: HashMap<PathBuf, Instant>,
+    /// Folders that appeared (made, or moved in) whose files no event will
+    /// ever mention: the watch on them starts after they were filled.
+    arrived: Vec<PathBuf>,
+    /// Set when events may have been lost (the kernel's queue overflowed, or
+    /// the watcher hit an error), so everything gets checked again.
+    rescan: bool,
 }
 
 /// Folders given on the command line are fixed. Without them the watcher
@@ -38,7 +47,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     let config_path = Config::path()?;
     let config = Config::load_or_default();
     let mut threads_now = threads.unwrap_or(config.threads);
-    let mut folders = fixed.clone().unwrap_or(config.folders);
+    let follow_config = fixed.is_none();
 
     status::set("getting the text reader ready, the first time this downloads 22 MB");
     let indexer = match Indexer::new(threads_now) {
@@ -50,22 +59,19 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     };
     let mut w = Watch {
         indexer,
+        folders: fixed.clone().unwrap_or(config.folders),
         pending: HashMap::new(),
         leaving: HashMap::new(),
+        arrived: Vec::new(),
+        rescan: false,
     };
-
-    for path in w.indexer.index.paths()? {
-        if !path.exists() {
-            w.indexer.forget(&path)?;
-        }
-    }
+    w.forget_the_gone(follow_config);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(tx)?;
-    for dir in &folders {
+    for dir in &w.folders {
         watch_folder(&mut watcher, dir);
     }
-    let follow_config = fixed.is_none();
     if follow_config && let Some(dir) = config_path.parent() {
         std::fs::create_dir_all(dir)?;
         watcher.watch(dir, RecursiveMode::NonRecursive)?;
@@ -73,7 +79,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
 
     // Only what actually needs reading, so a restart over a library that's
     // already read has nothing to do and nothing to report.
-    let mut backlog: VecDeque<PathBuf> = indexer::scan(&folders)
+    let mut backlog: VecDeque<PathBuf> = indexer::scan(&w.folders)
         .into_iter()
         .filter(|p| w.indexer.needs_reading(p))
         .collect();
@@ -89,19 +95,26 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
 
     loop {
         let mut config_changed = false;
-        let mut take = |event: notify::Result<Event>, w: &mut Watch| -> Result<()> {
-            let event = event?;
-            config_changed |= follow_config && event.paths.iter().any(|p| p == &config_path);
-            w.on_event(event);
-            Ok(())
+        let mut take = |event: notify::Result<Event>, w: &mut Watch| match event {
+            Ok(event) => {
+                config_changed |= follow_config && event.paths.iter().any(|p| p == &config_path);
+                w.on_event(event);
+            }
+            // Out of inotify watches for a new subfolder, a read error: some
+            // events may be gone, but that's a reason to look again, not to
+            // stop reading for good.
+            Err(e) => {
+                eprintln!("file watcher: {e}");
+                w.rescan = true;
+            }
         };
         // Block for as long as there is nothing else to do.
         let wait = if !w.pending.is_empty() || !w.leaving.is_empty() {
             SETTLE
-        } else if !backlog.is_empty() {
+        } else if !backlog.is_empty() || !w.arrived.is_empty() || w.rescan {
             // Working through an old library can wait, a laptop's battery
             // matters more. Anything new still wakes this straight away.
-            if power.on_battery() {
+            if power.on_battery() && !backlog.is_empty() {
                 BATTERY_PACE
             } else {
                 Duration::ZERO
@@ -110,12 +123,12 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             Duration::from_secs(3600)
         };
         match rx.recv_timeout(wait) {
-            Ok(event) => take(event, &mut w)?,
+            Ok(event) => take(event, &mut w),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => bail!("file watcher stopped"),
         }
         while let Ok(event) = rx.try_recv() {
-            take(event, &mut w)?;
+            take(event, &mut w);
         }
 
         // A config that doesn't parse (someone mid edit) is ignored until it does.
@@ -123,10 +136,16 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             let added: Vec<PathBuf> = config
                 .folders
                 .iter()
-                .filter(|f| !folders.contains(f))
+                .filter(|f| !w.folders.contains(f))
                 .cloned()
                 .collect();
-            for gone in folders.iter().filter(|f| !config.folders.contains(f)) {
+            let gone: Vec<PathBuf> = w
+                .folders
+                .iter()
+                .filter(|f| !config.folders.contains(f))
+                .cloned()
+                .collect();
+            for gone in &gone {
                 let _ = watcher.unwatch(gone);
                 backlog.retain(|p| {
                     !p.starts_with(gone) || config.folders.iter().any(|f| p.starts_with(f))
@@ -136,6 +155,14 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                     "stopped watching {} ({dropped} screenshots forgotten)",
                     gone.display()
                 );
+            }
+            // Unwatching a folder also drops the watches on everything
+            // inside it, including a folder that's still wanted
+            // (~/Pictures/Screenshots after removing ~/Pictures).
+            if !gone.is_empty() {
+                for dir in config.folders.iter().filter(|f| !added.contains(f)) {
+                    watch_folder(&mut watcher, dir);
+                }
             }
             for dir in &added {
                 watch_folder(&mut watcher, dir);
@@ -152,21 +179,43 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 w.indexer.set_threads(threads_now)?;
                 eprintln!("reading with {threads_now} threads now");
             }
-            folders = config.folders;
+            w.folders = config.folders;
+        }
+
+        // A folder that appeared brings files no event mentioned, and lost
+        // events mean anything could have changed: both are found by looking.
+        let look: Vec<PathBuf> = if std::mem::take(&mut w.rescan) {
+            w.arrived.clear();
+            w.folders.clone()
+        } else {
+            std::mem::take(&mut w.arrived)
+        };
+        if !look.is_empty() {
+            for path in indexer::scan(&look) {
+                if w.reads(&path) && w.indexer.needs_reading(&path) && !backlog.contains(&path) {
+                    backlog.push_back(path);
+                    caught_up = false;
+                }
+            }
         }
 
         for path in settled(&mut w.leaving) {
             if !path.exists() {
-                forget(&mut w.indexer, &path);
+                w.forget_all(&path);
             }
         }
 
         // Fresh screenshots jump the queue: the one you took just now is the
         // one you're about to look for, even while an old library backfills.
-        let fresh = settled(&mut w.pending);
+        let fresh: Vec<PathBuf> = settled(&mut w.pending)
+            .into_iter()
+            .filter(|p| p.is_file() && w.reads(p))
+            .collect();
         if !fresh.is_empty() {
-            for path in fresh.iter().filter(|p| p.is_file()) {
-                index(&mut w.indexer, path);
+            for path in fresh {
+                if index(&mut w.indexer, &path) == Read::Again {
+                    w.pending.insert(path, Instant::now());
+                }
             }
             continue;
         }
@@ -270,34 +319,112 @@ fn settled(map: &mut HashMap<PathBuf, Instant>) -> Vec<PathBuf> {
 }
 
 impl Watch {
+    /// Whether a path is one this reads: inside a configured folder, and not
+    /// inside a hidden folder in there (the same rule the scan follows, which
+    /// also keeps a drive's `.Trash-1000` out when the drive is the folder).
+    fn reads(&self, path: &Path) -> bool {
+        self.folders.iter().any(|folder| {
+            path.strip_prefix(folder).is_ok_and(|rest| {
+                !rest
+                    .components()
+                    .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+            })
+        })
+    }
+
+    /// At startup, drops shots whose files are gone. Only where the folder
+    /// they were in is still there: a drive that's unplugged right now keeps
+    /// its index for when it's back, instead of being read all over again.
+    /// Following the config, shots outside every folder are dropped too (a
+    /// folder removed while nothing was running).
+    fn forget_the_gone(&mut self, follow_config: bool) {
+        let Ok(paths) = self.indexer.index.paths() else {
+            return;
+        };
+        for path in paths {
+            let folder = self.folders.iter().find(|f| path.starts_with(f));
+            let gone = match folder {
+                Some(folder) => folder.is_dir() && !path.exists(),
+                None => follow_config,
+            };
+            if gone {
+                forget(&mut self.indexer, &path);
+            }
+        }
+    }
+
     /// Forgets every shot under `dir` that isn't also under one of `keep`
     /// (folders can nest). Returns how many.
     fn forget_under(&mut self, dir: &Path, keep: &[PathBuf]) -> usize {
+        let outside = |p: &Path| p.starts_with(dir) && !keep.iter().any(|k| p.starts_with(k));
+        self.pending.retain(|p, _| !outside(p));
         let paths = self.indexer.index.paths().unwrap_or_default();
-        let gone: Vec<PathBuf> = paths
-            .into_iter()
-            .filter(|p| p.starts_with(dir) && !keep.iter().any(|k| p.starts_with(k)))
-            .collect();
+        let gone: Vec<PathBuf> = paths.into_iter().filter(|p| outside(p)).collect();
         for p in &gone {
-            self.pending.remove(p);
             let _ = self.indexer.forget(p);
         }
         gone.len()
     }
 
+    /// A path that went away: the shot if it was one, everything inside it if
+    /// it was a folder. Which it was can't be asked any more.
+    fn forget_all(&mut self, path: &Path) {
+        self.pending.retain(|p, _| !p.starts_with(path));
+        if indexer::is_image(path) {
+            forget(&mut self.indexer, path);
+            return;
+        }
+        for shot in self.indexer.index.paths().unwrap_or_default() {
+            if shot.starts_with(path) {
+                forget(&mut self.indexer, &shot);
+            }
+        }
+    }
+
+    /// A folder renamed or moved within the watched folders: every shot in it
+    /// keeps its text under the new path.
+    fn move_folder(&mut self, from: &Path, to: &Path) {
+        let mut moved = 0;
+        for shot in self.indexer.index.paths().unwrap_or_default() {
+            if let Ok(rest) = shot.strip_prefix(from)
+                && self.indexer.rename(&shot, &to.join(rest)).unwrap_or(false)
+            {
+                moved += 1;
+            }
+        }
+        if moved > 0 {
+            eprintln!("moved {moved} screenshots to {}", to.display());
+        }
+        // Anything in there that wasn't read yet.
+        self.arrived.push(to.to_path_buf());
+    }
+
     fn on_event(&mut self, event: Event) {
         let now = Instant::now();
-        let images = event.paths.iter().filter(|p| indexer::is_image(p));
+        if event.need_rescan() {
+            self.rescan = true;
+        }
+        let watched = |p: &&PathBuf| indexer::is_image(p) && self.reads(p);
+        let images: Vec<PathBuf> = event.paths.iter().filter(watched).cloned().collect();
 
         match event.kind {
-            EventKind::Remove(_) => {
-                for path in images {
-                    self.pending.remove(path);
-                    forget(&mut self.indexer, path);
+            EventKind::Create(CreateKind::Folder) => {
+                self.arrived.extend(event.paths.iter().cloned());
+            }
+            EventKind::Remove(RemoveKind::Folder) => {
+                for path in &event.paths {
+                    self.forget_all(path);
                 }
             }
-            EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+            EventKind::Remove(_) => {
                 for path in images {
+                    self.pending.remove(&path);
+                    forget(&mut self.indexer, &path);
+                }
+            }
+            // Something renamed away: maybe a shot, maybe a whole folder.
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+                for path in &event.paths {
                     self.pending.remove(path);
                     self.leaving.insert(path.clone(), now);
                 }
@@ -306,7 +433,9 @@ impl Watch {
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
                 let (from, to) = (&event.paths[0], &event.paths[1]);
                 self.leaving.remove(from);
-                if indexer::is_image(from) && indexer::is_image(to) {
+                if to.is_dir() {
+                    self.move_folder(from, to);
+                } else if indexer::is_image(from) && indexer::is_image(to) && self.reads(to) {
                     match self.indexer.rename(from, to) {
                         Ok(true) => eprintln!("moved {} -> {}", from.display(), to.display()),
                         Ok(false) => {
@@ -314,10 +443,23 @@ impl Watch {
                         }
                         Err(e) => eprintln!("failed to move {}: {e:#}", from.display()),
                     }
-                } else if indexer::is_image(from) {
-                    forget(&mut self.indexer, from);
-                } else if indexer::is_image(to) {
-                    self.pending.insert(to.clone(), now);
+                } else {
+                    if indexer::is_image(from) {
+                        forget(&mut self.indexer, from);
+                    }
+                    if indexer::is_image(to) && self.reads(to) {
+                        self.pending.insert(to.clone(), now);
+                    }
+                }
+            }
+            // Moved in from outside: a folder brings files nobody mentions.
+            EventKind::Modify(ModifyKind::Name(_)) => {
+                for path in &event.paths {
+                    if path.is_dir() {
+                        self.arrived.push(path.clone());
+                    } else if indexer::is_image(path) && self.reads(path) {
+                        self.pending.insert(path.clone(), now);
+                    }
                 }
             }
             // The writer closed the file, so it's complete and there's nothing
@@ -326,12 +468,18 @@ impl Watch {
             EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
                 let done = now.checked_sub(SETTLE).unwrap_or(now);
                 for path in images {
-                    self.pending.insert(path.clone(), done);
+                    self.pending.insert(path, done);
                 }
             }
+            // Some platforms only say "created" for a folder too.
             EventKind::Create(_) | EventKind::Modify(_) => {
+                for path in &event.paths {
+                    if path.is_dir() && matches!(event.kind, EventKind::Create(_)) {
+                        self.arrived.push(path.clone());
+                    }
+                }
                 for path in images {
-                    self.pending.insert(path.clone(), now);
+                    self.pending.insert(path, now);
                 }
             }
             _ => {}
@@ -339,16 +487,25 @@ impl Watch {
     }
 }
 
-fn index(indexer: &mut Indexer, path: &Path) {
+#[derive(PartialEq)]
+enum Read {
+    Done,
+    /// Couldn't be read yet (still being written), worth another try.
+    Again,
+}
+
+fn index(indexer: &mut Indexer, path: &Path) -> Read {
     match indexer.index_file(path) {
         Ok(Outcome::Indexed { lines, took }) => {
             eprintln!("indexed {} ({lines} lines, {took:.1?})", path.display());
         }
         Ok(Outcome::Hidden(why)) => eprintln!("skipped {}: {why}", path.display()),
         Ok(Outcome::Unchanged | Outcome::Thumbnail) => {}
+        Ok(Outcome::NotYet) => return Read::Again,
         // One bad file shouldn't take the watcher down with it.
         Err(e) => eprintln!("failed {}: {e:#}", path.display()),
     }
+    Read::Done
 }
 
 fn forget(indexer: &mut Indexer, path: &Path) {
