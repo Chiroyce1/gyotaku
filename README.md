@@ -152,6 +152,7 @@ If anything does not work as described, see [Troubleshooting](docs/troubleshooti
 | Ctrl+C | Copy the screenshot's text, or the selected lines |
 | Ctrl+Shift+C | Copy the image |
 | Ctrl+, | Open settings |
+| Ctrl+Shift+A, Ctrl+Delete | Mark every result, then move them to the trash. Ctrl+Z puts them back. |
 | Escape | Clear the search, then close |
 
 Every word in a query must appear somewhere in the screenshot, not necessarily on the same line. On an open screenshot, drag a box to copy only the lines inside it.
@@ -167,6 +168,22 @@ See the [usage guide](docs/usage.md) for all keys, settings and commands.
 ## Privacy
 
 gyotaku runs entirely on your machine. It has no telemetry, accounts or update checks. Its only network access is the one-time download of the OCR models (from ModelScope) and ONNX Runtime (Microsoft's official build, from GitHub), each verified against a pinned SHA-256 checksum before use.
+
+## Roadmap
+
+- [x] Move screenshots to the trash in bulk: search, mark the results, move them to the system trash, with undo
+- [ ] Simple installation on every supported OS: prebuilt releases and a one-command install, no Rust toolchain needed
+- [ ] Windows support
+- [ ] macOS support
+- [ ] Optional classification of screenshots (one-time codes, receipts, chats) with Jev, to find and clear out the throwaway ones. Opt-in and off by default; only the recognized text is sent, never the image
+- [ ] Typo-tolerant search for OCR misreads: look-alike characters (`0` and `O`, `rn` and `m`, `l` and `1`) and words the OCR split apart (`ord er` for `order`). Substring matching already works through the trigram index
+- [ ] Search by what a screenshot shows, not only the text in it ("the one with a cat"), using a small local image embedding model such as CLIP. Optional, offline, and fast enough without a GPU
+- [ ] A keyboard shortcuts page in settings that lists every shortcut and lets each one be rebound by pressing the new keys
+- [ ] Group bursts of near-identical screenshots
+- [ ] Search filters such as `app:`, `in:` and dates like `yesterday`
+- [ ] More scripts, starting with Devanagari, and vertical text
+
+Suggestions are welcome as [feature requests](https://github.com/xevrion/gyotaku/issues/new?template=feature_request.yml).
 
 ## Documentation
 

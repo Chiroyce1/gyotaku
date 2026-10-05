@@ -106,7 +106,10 @@ the screenshots are the colour, the chrome around them stays quiet: off white or
 - a capture overlay of its own (or just call utsushot, 4x supersampled captures are the best OCR input there is)
 - group bursts of near identical shots (i have 8 of the same page within 2 minutes in places)
 - filters: `app:brave`, `yesterday`, `in:~/Pictures/Screenshots`
-- fuzzy matching for OCR typos beyond what trigrams already forgive
+- fuzzy matching for OCR typos beyond what trigrams already forgive: fold look-alikes (0/O, 1/l/I, rn/m, 5/S) on both sides before matching, and match across spaces so a word the OCR split (`ord er`) still finds `order`. suggested on X by @sunsetsyntax, 2026-10-05
 - a vertical-text pass, and a model with devanagari so hindi screenshots work
 - batch several screenshots through the detector at once during backfill
 - mac and windows: the core and ui are portable, the watcher and overlay aren't yet
+- search by what's in the picture, not just its text ("the screenshot with a cat"): a small clip-style image embedding per shot, stored next to the fts index, queried with the text side of the same model. has to stay local, opt-in (the model is a download of its own), and cheap on cpu, so a small model and the same idle-priority backfill. asked about on X by @jabr7_isaf, 2026-10-05
+- a shortcuts page in settings: every key listed, click one and press the new combo to rebind it, conflicts flagged, reset to default. saved to config.toml under `[keys]` so it can be edited by hand too
+- sort shots by what they are (otp, receipt, chat, code) by handing the OCR'd text to jev, so one-time stuff like otps can be found and binned in one go. jev needs the internet, so strictly opt-in, off by default, and only the text leaves the machine, never the image
