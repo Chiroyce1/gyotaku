@@ -73,6 +73,17 @@ try {
     Expand-Archive -Force -Path $zip -DestinationPath $Dir
     Get-ChildItem $Dir | Unblock-File
 
+    # Dev builds made on Linux compile gpui's shaders when they start, from
+    # the folder they were built in, which Windows reads as that same path on
+    # the system drive. Releases have them compiled in and ship no shaders.
+    $shaders = Join-Path $Dir 'shaders'
+    if (Test-Path (Join-Path $shaders 'where.txt')) {
+        $where = (Get-Content -Raw (Join-Path $shaders 'where.txt')).Trim() -replace '/', '\'
+        $into = Join-Path $env:SystemDrive $where
+        New-Item -ItemType Directory -Force -Path $into | Out-Null
+        Copy-Item -Force (Join-Path $shaders '*.hlsl') $into
+    }
+
     $app = Join-Path $Dir 'gyotaku-app.exe'
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($Shortcut)

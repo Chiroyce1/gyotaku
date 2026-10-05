@@ -36,3 +36,16 @@ codegen-units = 1
 inherits = "release"
 lto = false
 codegen-units = 16
+
+# Windows test builds made on Linux by contrib/windows-dev.sh. gpui's Windows
+# renderer only precompiles its shaders when built on Windows; with debug
+# assertions on it compiles them when the app starts instead, from the
+# sources the dev installer puts in place. Never used for a release.
+[profile.wintest]
+inherits = "release"
+lto = false
+codegen-units = 256
+incremental = true
+
+[profile.wintest.package.gpui_windows]
+debug-assertions = true
