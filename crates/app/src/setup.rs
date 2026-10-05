@@ -368,11 +368,16 @@ fn install_unit() -> std::io::Result<()> {
         return Err(std::io::ErrorKind::NotFound.into());
     };
     let unit = home.join(".config/systemd/user").join(SERVICE);
-    if unit.exists() {
+    // Rewritten when it differs, so a service left over from an earlier
+    // install (built from source into ~/.cargo/bin, say) runs the gyotaku
+    // next to this app instead of an old or deleted one. Local tweaks belong
+    // in a drop-in (systemctl --user edit), which this never touches.
+    let wanted = unit_file(&cli_path());
+    if std::fs::read_to_string(&unit).is_ok_and(|have| have == wanted) {
         return Ok(());
     }
     std::fs::create_dir_all(unit.parent().expect("has a parent"))?;
-    std::fs::write(&unit, unit_file(&cli_path()))
+    std::fs::write(&unit, wanted)
 }
 
 #[cfg(unix)]

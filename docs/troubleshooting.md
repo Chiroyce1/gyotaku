@@ -2,12 +2,36 @@
 
 If your problem is not listed here, [open an issue](https://github.com/xevrion/gyotaku/issues/new/choose) and include your distribution, desktop environment, and the output of `RUST_LOG=warn gyotaku-app --once` run from a terminal.
 
+- [Installing](#installing)
 - [Building](#building)
 - [Launching](#launching)
+- [Windows](#windows)
 - [Searching](#searching)
 - [Background indexing](#background-indexing)
 - [Clipboard](#clipboard)
 - [Performance](#performance)
+
+## Installing
+
+### `couldn't download ... 404`
+
+There is no release build for this machine, or GitHub could not be reached. Release builds exist for x86_64 and ARM64 Linux and x64 Windows. On anything else, [build from source](../README.md#build-from-source).
+
+### `glibc ... is older than the 2.35 the release needs`, or `this system doesn't use glibc`
+
+The release builds need Ubuntu 22.04, Debian 12, Fedora 36 or newer. Older and musl-based distributions (Alpine, Void musl) can [build from source](../README.md#build-from-source).
+
+### `~/.local/bin isn't on your PATH`
+
+The programs are installed but the shell can't find them by name. Most distributions add `~/.local/bin` to `PATH` at login once the folder exists, so logging out and back in usually fixes it; otherwise add the `export` line the installer printed to `~/.bashrc` or `~/.zshrc`. Keyboard shortcuts are unaffected as long as they use the full path, `~/.local/bin/gyotaku-app`.
+
+### `Another gyotaku-app ... comes first on your PATH`
+
+An earlier build from source in `~/.cargo/bin` is found before the installed release. Remove it with `cargo uninstall gyotaku gyotaku-app`, and update any keyboard shortcut that names `~/.cargo/bin/gyotaku-app`. Running the installer again afterwards points the background indexer at the new install.
+
+### `The search window needs these libraries, which aren't installed`
+
+This happens on minimal or server installs. Install the packages the installer lists, which every desktop environment already includes. `gyotaku` itself (the indexer and command line) works without them.
 
 ## Building
 
@@ -31,7 +55,7 @@ The disk ran out of space during the build. About 3 GB of free space is required
 
 ### `gyotaku-app: command not found`
 
-`~/.cargo/bin` is not on your `PATH`. Open a new terminal, or log out and back in after installing rustup.
+The install folder is not on your `PATH`: `~/.local/bin` for the installer (see [above](#localbin-isnt-on-your-path)), `~/.cargo/bin` for a build from source. Open a new terminal, or log out and back in.
 
 ### The keyboard shortcut does nothing
 
@@ -47,6 +71,25 @@ This is expected. GNOME does not implement the Wayland layer-shell protocol used
 ### An old version opens after updating
 
 The window process remains resident between uses. Stop it once with `pkill -x gyotaku-app`.
+
+## Windows
+
+### "Windows protected your PC"
+
+The programs are not code-signed yet, so SmartScreen warns about an unknown publisher. Select **More info**, then **Run anyway**. The installer verifies each download against the checksum published with the release.
+
+### Alt+Shift+S does nothing
+
+Another program has claimed the key. Open gyotaku from the Start menu instead, or choose a different key in `%APPDATA%\gyotaku\config\config.toml`, then quit gyotaku (Ctrl+Q) and open it again:
+
+```toml
+[keys]
+summon = "ctrl-alt-g"
+```
+
+### The window stays hidden after signing in
+
+That is intended: when background indexing is on, gyotaku starts hidden at sign-in, ready for the summon key. It is listed in Task Manager under **Startup apps**, where it can also be turned off.
 
 ## Searching
 

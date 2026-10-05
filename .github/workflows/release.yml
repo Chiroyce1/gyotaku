@@ -124,3 +124,8 @@ jobs:
           else
             gh release create "$TAG" dist/* --generate-notes --title "gyotaku $TAG" --repo "$GITHUB_REPOSITORY"
           fi
+
+  # The installers, run against what was just published.
+  installers:
+    needs: publish
+    uses: ./.github/workflows/install.yml

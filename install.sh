@@ -142,6 +142,30 @@ for bin in gyotaku gyotaku-app; do
     mv -f "$BIN_DIR/.$bin.new" "$BIN_DIR/$bin"
 done
 
+# A background reader set up by an earlier install whose program is gone
+# (a build from source that was uninstalled, say) would fail every 30
+# seconds forever, so it's pointed at this one. One that still works is
+# left alone.
+unit="$CONFIG_HOME/systemd/user/gyotaku-watch.service"
+if [ -f "$unit" ]; then
+    runs=$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$unit" | sed "s|%h|$HOME|")
+    if [ -n "$runs" ] && [ ! -x "$runs" ]; then
+        sed -i "s|^ExecStart=.*|ExecStart=$BIN_DIR/gyotaku watch|" "$unit"
+        if has systemctl && systemctl --user is-enabled gyotaku-watch.service >/dev/null 2>&1; then
+            systemctl --user daemon-reload || true
+            systemctl --user restart gyotaku-watch.service || true
+        fi
+        say "Pointed the background reader at the new install."
+    fi
+fi
+autostart="$CONFIG_HOME/autostart/gyotaku-watch.desktop"
+if [ -f "$autostart" ]; then
+    runs=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$autostart")
+    if [ -n "$runs" ] && [ ! -x "$runs" ]; then
+        sed -i "s|^Exec=.*|Exec=$BIN_DIR/gyotaku watch|" "$autostart"
+    fi
+fi
+
 # An update: the old window process and background reader are still the old
 # version, so they're restarted onto the new one.
 if [ "$first_install" = false ]; then

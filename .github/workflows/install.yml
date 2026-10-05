@@ -1,0 +1,105 @@
+name: install
+
+# Runs both installers the way a new user would, against the published
+# release: install, read a real screenshot with what got installed (which
+# also covers the first-run downloads), install again as an update, then
+# uninstall. Runs after every release, weekly, and when an installer changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/install.yml'
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu 22.04
+            image: ubuntu:22.04
+            prep: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates
+          - name: debian 12
+            image: debian:12
+            prep: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates
+          - name: fedora
+            image: fedora:latest
+            prep: dnf install -y curl tar gzip
+          - name: arch
+            image: archlinux:latest
+            prep: pacman -Syu --noconfirm --needed curl
+          - name: opensuse tumbleweed
+            image: opensuse/tumbleweed
+            prep: zypper -n install curl tar gzip
+    env:
+      GYOTAKU_NO_LAUNCH: '1'
+    steps:
+      - name: packages
+        run: ${{ matrix.prep }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install
+        run: sh install.sh
+      - name: read a screenshot with what got installed
+        run: |
+          "$HOME/.local/bin/gyotaku" --version
+          "$HOME/.local/bin/gyotaku" ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
+      - name: update
+        run: |
+          mkdir -p "$HOME/.config/gyotaku" && touch "$HOME/.config/gyotaku/config.toml"
+          sh install.sh
+      - name: uninstall
+        run: |
+          sh install.sh --uninstall
+          test ! -e "$HOME/.local/bin/gyotaku" && test ! -e "$HOME/.local/bin/gyotaku-app"
+
+  windows:
+    name: windows
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install
+        run: ./install.ps1
+      - name: check what got installed
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\gyotaku'
+          foreach ($f in 'gyotaku-app.exe', 'gyotaku.exe', 'onnxruntime.dll') {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "$f is missing" }
+          }
+          $link = Join-Path ([Environment]::GetFolderPath('Programs')) 'gyotaku.lnk'
+          if (-not (Test-Path $link)) { throw 'the Start menu shortcut is missing' }
+      - name: read a screenshot with what got installed
+        run: |
+          $cli = Join-Path $env:LOCALAPPDATA 'Programs\gyotaku\gyotaku.exe'
+          & $cli --version
+          $out = & $cli ocr tests\fixtures\settings.png --threads 2
+          $out
+          if (-not ($out -match 'cores per screenshot')) { throw 'the screenshot was not read' }
+      - name: update
+        run: ./install.ps1
+      - name: uninstall
+        run: |
+          $env:GYOTAKU_UNINSTALL = 1
+          ./install.ps1
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\gyotaku')) { throw 'the install folder is still there' }
