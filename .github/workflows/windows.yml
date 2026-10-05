@@ -56,6 +56,15 @@ jobs:
           curl -sSfLo ort.zip "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip"
           echo "$ORT_SHA256  ort.zip" | sha256sum -c -
           unzip -q -j ort.zip "onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll" -d target/release
+      # onnxruntime.dll needs the Visual C++ runtime, which a fresh Windows
+      # doesn't have. Microsoft allows shipping these beside the program.
+      - name: visual c++ runtime
+        run: |
+          crt=$(ls -d "/c/Program Files/Microsoft Visual Studio/"*/*/VC/Redist/MSVC/*/x64/Microsoft.VC14*.CRT 2>/dev/null | sort -V | tail -n1)
+          echo "from ${crt:-System32}"
+          for dll in msvcp140.dll msvcp140_1.dll vcruntime140.dll vcruntime140_1.dll; do
+            cp "${crt:-/c/Windows/System32}/$dll" target/release/
+          done
       - name: read a screenshot
         run: |
           ./target/release/gyotaku.exe ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
@@ -64,6 +73,7 @@ jobs:
         run: |
           mkdir -p dist/gyotaku
           cp target/release/gyotaku-app.exe target/release/gyotaku.exe target/release/onnxruntime.dll dist/gyotaku/
+          cp target/release/msvcp140.dll target/release/msvcp140_1.dll target/release/vcruntime140.dll target/release/vcruntime140_1.dll dist/gyotaku/
           cp LICENSE dist/gyotaku/LICENSE.txt
           cp crates/app/fonts/OFL.txt dist/gyotaku/FONTS-OFL.txt
           cp contrib/windows-readme.txt dist/gyotaku/README.txt
@@ -72,3 +82,49 @@ jobs:
           name: gyotaku-windows-x64
           path: dist/gyotaku
           if-no-files-found: error
+      # Opens the real window on the runner's desktop and photographs it:
+      # the grid, a search, settings, and the summon key bringing it back.
+      # The runner draws with WARP (software Direct3D), so this also covers
+      # machines without a usable GPU.
+      - name: open the window
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          New-Item -ItemType Directory -Force shots | Out-Null
+          function Shot($name) {
+            Start-Sleep -Milliseconds 1200
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("shots\$name.png")
+          }
+          function Alive {
+            if (-not (Get-Process gyotaku-app -ErrorAction SilentlyContinue)) { throw 'gyotaku-app is not running' }
+          }
+
+          $shots = (Resolve-Path tests\fixtures).Path
+          $cfg = Join-Path $env:APPDATA 'gyotaku\config'
+          New-Item -ItemType Directory -Force $cfg | Out-Null
+          "folders = ['$shots']`ntheme = 'dark'`nthreads = 2" | Set-Content (Join-Path $cfg 'config.toml')
+          .\dist\gyotaku\gyotaku.exe index $shots
+
+          Start-Process .\dist\gyotaku\gyotaku-app.exe
+          Start-Sleep -Seconds 5
+          Alive; Shot '1-open'
+          [System.Windows.Forms.SendKeys]::SendWait('cores')
+          Alive; Shot '2-search'
+          [System.Windows.Forms.SendKeys]::SendWait('^,')
+          Alive; Shot '3-settings'
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+          Alive; Shot '4-hidden'
+          [System.Windows.Forms.SendKeys]::SendWait('%+s')
+          Alive; Shot '5-summoned'
+          Get-Process gyotaku-app | Stop-Process -Force
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: windows-screens
+          path: shots
+          if-no-files-found: warn

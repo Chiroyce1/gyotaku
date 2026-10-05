@@ -83,6 +83,15 @@ jobs:
           curl -sSfLo ort.zip "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip"
           echo "$ORT_WIN_SHA256  ort.zip" | sha256sum -c -
           unzip -q -j ort.zip "onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll" -d target/release
+      # onnxruntime.dll needs the Visual C++ runtime, which a fresh Windows
+      # doesn't have. Microsoft allows shipping these beside the program.
+      - name: visual c++ runtime
+        run: |
+          crt=$(ls -d "/c/Program Files/Microsoft Visual Studio/"*/*/VC/Redist/MSVC/*/x64/Microsoft.VC14*.CRT 2>/dev/null | sort -V | tail -n1)
+          echo "from ${crt:-System32}"
+          for dll in msvcp140.dll msvcp140_1.dll vcruntime140.dll vcruntime140_1.dll; do
+            cp "${crt:-/c/Windows/System32}/$dll" target/release/
+          done
       - name: read a screenshot
         run: |
           ./target/release/gyotaku.exe ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
@@ -92,6 +101,7 @@ jobs:
           name="gyotaku-x86_64-windows"
           mkdir -p "dist/$name"
           cp target/release/gyotaku-app.exe target/release/gyotaku.exe target/release/onnxruntime.dll "dist/$name/"
+          cp target/release/msvcp140.dll target/release/msvcp140_1.dll target/release/vcruntime140.dll target/release/vcruntime140_1.dll "dist/$name/"
           cp LICENSE "dist/$name/LICENSE.txt"
           cp contrib/windows-readme.txt "dist/$name/README.txt"
           (cd "dist/$name" && 7z a -tzip "../$name.zip" . > /dev/null)

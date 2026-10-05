@@ -6,11 +6,21 @@ Search every screenshot you have taken by the text inside it.
 Getting started
 ---------------
 
-1. Keep the three files together in one folder you won't delete, for
-   example C:\Users\you\AppData\Local\gyotaku:
+The easiest way is the one-line install in PowerShell, which does all of
+this for you and adds gyotaku to the Start menu:
+
+    irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
+
+By hand:
+
+1. Keep all the files together in one folder you won't delete, for
+   example C:\Users\you\AppData\Local\Programs\gyotaku:
      gyotaku-app.exe   the search window
      gyotaku.exe       the background reader and command line
      onnxruntime.dll   Microsoft's ONNX Runtime, used to read text
+     msvcp140*.dll, vcruntime140*.dll
+                       Microsoft's Visual C++ runtime, which ONNX Runtime
+                       needs and a fresh Windows doesn't have
 2. Run gyotaku-app.exe. The first time, it asks which folders to read
    (Pictures\Screenshots is where Windows saves Win+PrtScn and the
    Snipping Tool's screenshots) and whether to keep reading new ones in

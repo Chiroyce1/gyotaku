@@ -1,0 +1,5 @@
+# The Visual C++ runtime is linked into the programs on Windows, so they run
+# on a fresh install that never had the redistributable. ONNX Runtime still
+# needs it as DLLs, which the release ships beside onnxruntime.dll.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
