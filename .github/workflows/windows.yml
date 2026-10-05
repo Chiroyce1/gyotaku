@@ -153,36 +153,5 @@ jobs:
           path: shots
           if-no-files-found: warn
 
-  # Every build of main goes out as the rolling `dev` pre-release, so a
-  # Windows machine with nothing installed can try it with one command:
-  #   $env:GYOTAKU_CHANNEL = 'dev'; irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
-  # It's never marked latest, so ordinary installs never see it. Published
-  # even when the window test fails, since that's when trying it by hand
-  # matters most.
-  dev:
-    needs: windows
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: gyotaku-windows-x64
-          path: gyotaku
-      - name: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          name=gyotaku-x86_64-windows
-          (cd gyotaku && zip -qr "../$name.zip" .)
-          sha256sum "$name.zip" > "$name.zip.sha256"
-          repo="$GITHUB_REPOSITORY"
-          if ! gh release view dev --repo "$repo" > /dev/null 2>&1; then
-            gh release create dev --repo "$repo" --prerelease --latest=false \
-              --target "$GITHUB_SHA" --title "dev build" --notes "Rolling test build."
-          fi
-          gh release upload dev "$name.zip" "$name.zip.sha256" --clobber --repo "$repo"
-          gh release edit dev --repo "$repo" --prerelease --latest=false --notes \
-            "Rolling Windows test build of $GITHUB_SHA, rebuilt on every change to main. Not for everyday use: install a [release](https://github.com/$repo/releases/latest) instead."
+# Test builds for trying a change on a Windows machine are made locally with
+# contrib/windows-dev.sh, in about a minute, and published from there.
