@@ -1,5 +1,6 @@
 import { Arrow } from "@/components/Arrow";
 import { GithubIcon, Header } from "@/components/Header";
+import { Features } from "@/components/Features";
 import { HeroInstall } from "@/components/HeroInstall";
 import { HeroPrint } from "@/components/HeroPrint";
 import InstallTabs, { QuickCommand } from "@/components/InstallTabs";
@@ -134,6 +135,10 @@ export default function Home() {
           </Reveal>
           <Steps />
         </section>
+
+        <div className="pt-36">
+          <Features />
+        </div>
 
         <div className="pt-36">
           <Numbers />
