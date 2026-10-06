@@ -61,6 +61,67 @@ jobs:
         run: |
           ./target/release/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
           grep -q "cores per screenshot" ocr.txt
+      # A running reader must pick up what lands in its folders, the way a
+      # person adds screenshots: copied in, moved in, written slowly, and taken
+      # with screencapture. The folders cover the ways a configured path can
+      # differ from the real one FSEvents reports: under /var (really
+      # /private/var), through a symlink, and a plain one under the home
+      # folder. Each file must be in the index within 15 seconds.
+      - name: reader follows new files
+        run: |
+          bin="$PWD/target/release/gyotaku"
+          data="$HOME/Library/Application Support/gyotaku"
+          fixture="$PWD/tests/fixtures/settings.png"
+          var_dir="$(mktemp -d)/var-shots"
+          mkdir -p "$var_dir" "$HOME/gyo-real" "$HOME/Pictures/gyo-plain"
+          ln -s "$HOME/gyo-real" "$HOME/gyo-link"
+          link_dir="$HOME/gyo-link"
+          plain_dir="$HOME/Pictures/gyo-plain"
+          mkdir -p "$data"
+          printf "folders = ['%s', '%s', '%s']\nthreads = 2\n" "$var_dir" "$link_dir" "$plain_dir" > "$data/config.toml"
+
+          "$bin" watch > /tmp/watch.log 2>&1 &
+          watch_pid=$!
+          for _ in $(seq 1 120); do
+            grep -q "up to date" "$data/reader.status" 2>/dev/null && break
+            sleep 1
+          done
+          echo "reader status: $(cat "$data/reader.status" 2>/dev/null)"
+
+          cp "$fixture" "$var_dir/cp-var.png"
+          cp "$fixture" "$link_dir/cp-link.png"
+          cp "$fixture" "$plain_dir/cp-plain.png"
+          cp "$fixture" /tmp/mv-src-1.png && mv /tmp/mv-src-1.png "$plain_dir/mv-plain.png"
+          cp "$fixture" /tmp/mv-src-2.png && mv /tmp/mv-src-2.png "$var_dir/mv-var.png"
+          # Written in chunks over a few seconds, like a slow tool.
+          size=$(stat -f %z "$fixture")
+          chunk=$(( size / 4 + 1 ))
+          for i in 0 1 2 3; do
+            dd if="$fixture" bs="$chunk" skip=$i count=1 2>/dev/null >> "$plain_dir/slow-plain.png"
+            sleep 1
+          done
+          screencapture -x "$plain_dir/shot-plain.png" || echo "screencapture failed"
+
+          failed=0
+          for name in cp-var cp-link cp-plain mv-plain mv-var slow-plain shot-plain; do
+            found=no
+            for _ in $(seq 1 15); do
+              if sqlite3 "$data/index.db" "select path from shots" | grep -q "/$name.png$"; then
+                found=yes; break
+              fi
+              sleep 1
+            done
+            echo "$name: $found"
+            [ "$found" = yes ] || failed=1
+          done
+
+          kill "$watch_pid" || true
+          if [ "$failed" = 1 ]; then
+            echo "--- indexed paths"; sqlite3 "$data/index.db" "select path from shots"
+            echo "--- reader log"; cat /tmp/watch.log
+            exit 1
+          fi
+          rm -f "$data/index.db" "$data/index.db-wal" "$data/index.db-shm" "$data/config.toml"
       - name: package
         run: |
           mkdir -p dist/gyotaku
