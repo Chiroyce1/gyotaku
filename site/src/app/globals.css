@@ -1,22 +1,35 @@
 @import "tailwindcss";
 
-/* The app's own palette, so the page and the window it shows look like one
-   thing. Paper and ink in light, the panel colors in dark, shu (朱, the
-   vermilion of a seal) for whatever the search found. */
+/* Iro-gyotaku: the colored kind of fish print, several inks pressed onto
+   washi. Light is the paper, warm and a little uneven; dark is sumi on an
+   indigo night. Shu (朱, a seal's vermilion) still means "found"; the other
+   inks give each part of the page its own color:
+   ai (藍, indigo), kihada (黄蘗, bark yellow), matsu (松, pine). */
 :root {
-  --bg: #f6f6f4;
-  --panel: #ffffff;
-  --sunk: #eeede9;
-  --ink: #18181a;
-  --dim: #6b6a66;
-  --faint: #76756f;
-  --line: rgb(0 0 0 / 0.08);
-  --shu: #e0531f;
-  --shu-soft: rgb(224 83 31 / 0.12);
+  --bg: #f3eee3;
+  --panel: #fbf8f1;
+  --sunk: #e9e2d3;
+  --ink: #1f1b16;
+  --dim: #5e574c;
+  --faint: #756d61;
+  --line: rgb(70 50 20 / 0.13);
+  --shu: #d4461a;
+  --shu-soft: rgb(212 70 26 / 0.12);
+  --ai: #24427a;
+  --ai-soft: rgb(36 66 122 / 0.1);
+  --kihada: #b07a12;
+  --kihada-soft: rgb(176 122 18 / 0.12);
+  --matsu: #2f6a46;
+  --matsu-soft: rgb(47 106 70 / 0.11);
   --outline: oklch(0 0 0 / 0.1);
   --shadow:
-    0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04),
-    0 12px 32px -8px rgb(0 0 0 / 0.12);
+    0 0 0 1px rgb(70 50 20 / 0.09), 0 1px 2px rgb(70 50 20 / 0.06),
+    0 14px 34px -10px rgb(70 50 20 / 0.2);
+  --band-ai: #213c70;
+  --band-shu: #d04319;
+  /* Text on a shu fill. On the shu band shu turns to paper, so this turns
+     to the band's red. */
+  --on-shu: #fff;
   color-scheme: light;
 }
 
@@ -24,38 +37,88 @@
    on <html data-theme>. The two blocks must stay identical. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e0e10;
-    --panel: #141416;
-    --sunk: #1c1c1f;
-    --ink: #ecebe7;
-    --dim: #9a9993;
-    --faint: #807f79;
-    --line: rgb(255 255 255 / 0.08);
-    --shu: #ff7438;
-    --shu-soft: rgb(255 116 56 / 0.14);
+    --bg: #0d0f17;
+    --panel: #151826;
+    --sunk: #1d2133;
+    --ink: #eee8dc;
+    --dim: #a59f94;
+    --faint: #8a8579;
+    --line: rgb(220 225 255 / 0.09);
+    --shu: #ff7a45;
+    --shu-soft: rgb(255 122 69 / 0.15);
+    --ai: #8aa8eb;
+    --ai-soft: rgb(138 168 235 / 0.13);
+    --kihada: #e6b450;
+    --kihada-soft: rgb(230 180 80 / 0.13);
+    --matsu: #7dbd92;
+    --matsu-soft: rgb(125 189 146 / 0.13);
     --outline: oklch(1 0 0 / 0.1);
     --shadow:
-      0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4),
-      0 24px 48px -12px rgb(0 0 0 / 0.6);
+      0 0 0 1px rgb(220 225 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
+      0 24px 48px -12px rgb(0 0 0 / 0.65);
+    --band-ai: #1a2c58;
+    --band-shu: #b93a14;
+    --on-shu: #1b0f08;
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0e0e10;
-  --panel: #141416;
-  --sunk: #1c1c1f;
-  --ink: #ecebe7;
-  --dim: #9a9993;
-  --faint: #807f79;
-  --line: rgb(255 255 255 / 0.08);
-  --shu: #ff7438;
-  --shu-soft: rgb(255 116 56 / 0.14);
+  --bg: #0d0f17;
+  --panel: #151826;
+  --sunk: #1d2133;
+  --ink: #eee8dc;
+  --dim: #a59f94;
+  --faint: #8a8579;
+  --line: rgb(220 225 255 / 0.09);
+  --shu: #ff7a45;
+  --shu-soft: rgb(255 122 69 / 0.15);
+  --ai: #8aa8eb;
+  --ai-soft: rgb(138 168 235 / 0.13);
+  --kihada: #e6b450;
+  --kihada-soft: rgb(230 180 80 / 0.13);
+  --matsu: #7dbd92;
+  --matsu-soft: rgb(125 189 146 / 0.13);
   --outline: oklch(1 0 0 / 0.1);
   --shadow:
-    0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4),
-    0 24px 48px -12px rgb(0 0 0 / 0.6);
+    0 0 0 1px rgb(220 225 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 24px 48px -12px rgb(0 0 0 / 0.65);
+  --band-ai: #1a2c58;
+  --band-shu: #b93a14;
+  --on-shu: #1b0f08;
   color-scheme: dark;
+}
+
+/* Dyed bands. Every component reads the tokens, so redefining them here
+   re-dyes whatever sits inside: the install tabs on indigo cloth, the last
+   call on a sheet of vermilion. */
+.band-ai {
+  --bg: var(--band-ai);
+  --panel: rgb(255 255 255 / 0.07);
+  --sunk: rgb(0 0 0 / 0.22);
+  --ink: #f4efe4;
+  --dim: rgb(244 239 228 / 0.74);
+  --faint: rgb(244 239 228 / 0.6);
+  --line: rgb(255 255 255 / 0.14);
+  --shu: #ffb38f;
+  --shu-soft: rgb(255 179 143 / 0.16);
+  --shadow: 0 0 0 1px rgb(255 255 255 / 0.1), 0 20px 40px -16px rgb(0 0 0 / 0.5);
+  background: var(--band-ai);
+  color: var(--ink);
+}
+.band-shu {
+  --bg: var(--band-shu);
+  --panel: rgb(255 255 255 / 0.08);
+  --sunk: rgb(0 0 0 / 0.2);
+  --ink: #fff6ec;
+  --dim: rgb(255 246 236 / 0.8);
+  --faint: rgb(255 246 236 / 0.66);
+  --line: rgb(255 255 255 / 0.2);
+  --shu: #fff6ec;
+  --shu-soft: rgb(255 255 255 / 0.16);
+  --on-shu: var(--band-shu);
+  background: var(--band-shu);
+  color: var(--ink);
 }
 
 @theme inline {
@@ -68,6 +131,12 @@
   --color-line: var(--line);
   --color-shu: var(--shu);
   --color-shu-soft: var(--shu-soft);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-kihada: var(--kihada);
+  --color-kihada-soft: var(--kihada-soft);
+  --color-matsu: var(--matsu);
+  --color-matsu-soft: var(--matsu-soft);
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -195,6 +264,26 @@ body::before {
   box-shadow: inset 0 0 0 2px var(--shu);
   z-index: -1;
   animation: found 650ms var(--ease-in-out) 750ms both;
+}
+
+/* The hero print: each line pressed down in turn, from its left edge. */
+@keyframes press-line {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+}
+.print-line {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: press-line 900ms var(--ease-out) both;
+  animation-delay: calc(500ms + var(--i, 0) * 70ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .print-line {
+    animation: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

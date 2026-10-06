@@ -3,9 +3,9 @@
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
-type Os = "linux" | "windows" | "macos";
+export type Os = "linux" | "windows" | "macos";
 
-type Tab = {
+export type Tab = {
   id: Os;
   label: string;
   prompt?: string;
@@ -14,7 +14,7 @@ type Tab = {
   update?: string;
 };
 
-const TABS: Tab[] = [
+export const TABS: Tab[] = [
   {
     id: "linux",
     label: "Linux",
@@ -44,11 +44,18 @@ const TABS: Tab[] = [
 
 const spring = { type: "spring", duration: 0.3, bounce: 0 } as const;
 
-function detect(): Os {
+export function detect(): Os {
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
   if (/Mac OS X|Macintosh/i.test(ua) && !/iPhone|iPad/i.test(ua)) return "macos";
   return "linux";
+}
+
+// Phones can't run it. Android says "Linux" in its user agent, so this has
+// to be asked before trusting detect().
+export function onPhone(): boolean {
+  const data = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData;
+  return data?.mobile ?? /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
 export default function InstallTabs() {
@@ -248,7 +255,7 @@ function CopyButton({ text, primary = false }: { text: string; primary?: boolean
         <button
           type="button"
           onClick={copy}
-          className="press flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] bg-shu pr-3 pl-2.5 text-[14px] font-medium text-white shadow-[0_1px_0_rgb(255_255_255/0.2)_inset]"
+          className="press flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] bg-shu pr-3 pl-2.5 text-[14px] font-medium text-[var(--on-shu)] shadow-[0_1px_0_rgb(255_255_255/0.2)_inset]"
         >
           {icon}
           <span className="grid">

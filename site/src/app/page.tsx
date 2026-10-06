@@ -1,5 +1,7 @@
 import { Arrow } from "@/components/Arrow";
 import { GithubIcon, Header } from "@/components/Header";
+import { HeroInstall } from "@/components/HeroInstall";
+import { HeroPrint } from "@/components/HeroPrint";
 import InstallTabs, { QuickCommand } from "@/components/InstallTabs";
 import { Mark } from "@/components/Mark";
 import Numbers from "@/components/Numbers";
@@ -14,10 +16,10 @@ import { REPO, REPO_SLUG, SAVED_STARS } from "@/lib/links";
 const VERSION = "0.1.2";
 
 const stack = [
-  { name: "Rust", note: "the whole thing", href: "https://www.rust-lang.org" },
-  { name: "gpui", note: "the window, from Zed", href: "https://www.gpui.rs" },
-  { name: "PP-OCR", note: "reading, on ONNX Runtime", href: "https://github.com/PaddlePaddle/PaddleOCR" },
-  { name: "SQLite FTS5", note: "the index, trigram search", href: "https://www.sqlite.org/fts5.html" },
+  { name: "Rust", note: "the whole thing", href: "https://www.rust-lang.org", ink: "bg-shu" },
+  { name: "gpui", note: "the window, from Zed", href: "https://www.gpui.rs", ink: "bg-ai" },
+  { name: "PP-OCR", note: "reading, on ONNX Runtime", href: "https://github.com/PaddlePaddle/PaddleOCR", ink: "bg-matsu" },
+  { name: "SQLite FTS5", note: "the index, trigram search", href: "https://www.sqlite.org/fts5.html", ink: "bg-kihada" },
 ];
 
 // Everything gyotaku ever does over the network, as a log. Kept honest with
@@ -64,7 +66,8 @@ export default function Home() {
 
       <main id="top" className="overflow-x-clip">
         {/* Hero */}
-        <section className="mx-auto w-full max-w-5xl px-4 pt-14 pb-12 sm:px-6 sm:pt-24">
+        <section className="relative isolate mx-auto w-full max-w-5xl px-4 pt-14 pb-12 sm:px-6 sm:pt-24">
+          <HeroPrint />
           <Rise i={0}>
             <a
               href={`${REPO}/releases/latest`}
@@ -96,19 +99,8 @@ export default function Home() {
           </Rise>
 
           <Rise i={3}>
-            <div className="mt-9 grid gap-3 min-[480px]:flex min-[480px]:flex-wrap min-[480px]:items-center">
-              <a
-                href="#install"
-                className="press group inline-flex h-12 items-center justify-center gap-2.5 rounded-xl bg-ink pr-4 pl-5 font-medium text-bg shadow-[0_1px_0_rgb(255_255_255/0.12)_inset,0_8px_24px_-8px_rgb(0_0_0/0.35)]"
-              >
-                Install gyotaku
-                <span className="flex size-6 items-center justify-center rounded-md bg-bg/10">
-                  <Arrow
-                    direction="down"
-                    className="transition-[translate] duration-200 ease-out group-hover:translate-y-0.5"
-                  />
-                </span>
-              </a>
+            <div className="mt-9 grid gap-3 min-[480px]:flex min-[480px]:flex-wrap min-[480px]:items-start">
+              <HeroInstall />
               <a
                 href={REPO}
                 className="press inline-flex h-12 items-center justify-center gap-2.5 rounded-xl border border-line bg-panel px-4 font-medium text-ink hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]"
@@ -147,22 +139,24 @@ export default function Home() {
           <Numbers />
         </div>
 
-        {/* Install */}
+        {/* Install, on a band of indigo cloth. */}
         <section
           id="install"
           aria-labelledby="install-title"
-          className="mx-auto w-full max-w-5xl px-4 pt-36 sm:px-6"
+          className="band-ai mt-36 scroll-mt-14 py-24 sm:py-28"
         >
-          <Reveal>
-            <SectionTitle id="install-title">install in one line</SectionTitle>
-            <Lede>
-              No admin rights, no developer tools. It sets everything up, then
-              tells you the one thing left to do.
-            </Lede>
-          </Reveal>
-          <Reveal delay={0.1} className="mt-10 max-w-3xl">
-            <InstallTabs />
-          </Reveal>
+          <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
+            <Reveal>
+              <SectionTitle id="install-title">install in one line</SectionTitle>
+              <Lede>
+                No admin rights, no developer tools. It sets everything up, then
+                tells you the one thing left to do.
+              </Lede>
+            </Reveal>
+            <Reveal delay={0.1} className="mt-10 max-w-3xl">
+              <InstallTabs />
+            </Reveal>
+          </div>
         </section>
 
         {/* Privacy */}
@@ -196,7 +190,7 @@ export default function Home() {
                         <td className="py-3 pr-2 align-top text-ink">{t.what}</td>
                         <td
                           className={`py-3 pr-4 text-right align-top ${
-                            t.when === "after" ? "text-shu" : "text-dim"
+                            t.when === "after" ? "font-medium text-matsu" : "text-dim"
                           }`}
                         >
                           {t.result}
@@ -228,7 +222,14 @@ export default function Home() {
                     className="group flex h-full flex-col gap-1 p-5 transition-colors duration-150 hover:bg-panel sm:p-6"
                   >
                     <span className="flex items-center justify-between font-medium text-ink">
-                      {s.name}
+                      <span className="flex items-center gap-2.5">
+                        {/* A dab of the ink this part is printed in. */}
+                        <span
+                          aria-hidden
+                          className={`h-3 w-1.5 rounded-full transition-[height] duration-200 ease-[var(--ease-out)] group-hover:h-4 ${s.ink}`}
+                        />
+                        {s.name}
+                      </span>
                       <Arrow
                         direction="up-right"
                         className="size-3 text-faint opacity-0 transition-[opacity,translate] duration-200 ease-out group-hover:translate-x-px group-hover:-translate-y-px group-hover:opacity-100"
@@ -259,7 +260,7 @@ export default function Home() {
 
         {/* Last call: the command itself, for someone who's convinced. */}
         <section className="mx-auto w-full max-w-5xl px-4 pt-36 sm:px-6">
-          <Reveal className="relative rounded-3xl bg-panel px-6 pt-14 pb-10 shadow-[var(--shadow)] sm:px-14 sm:pt-20 sm:pb-14">
+          <Reveal className="band-shu relative rounded-3xl px-6 pt-14 pb-10 shadow-[0_30px_60px_-24px_rgb(150_40_10/0.55)] sm:px-14 sm:pt-20 sm:pb-14">
             <Seal size={76} className="absolute -top-5 right-5 sm:-top-6 sm:right-10" />
             <h2 className="max-w-lg text-[2rem] leading-tight font-medium tracking-[-0.03em] text-ink sm:text-5xl">
               it&apos;s in there somewhere.

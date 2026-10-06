@@ -27,6 +27,10 @@ const STEPS = [
   },
 ];
 
+// Each step in its own ink: pine for the folders chosen, indigo for the
+// reading, shu for the moment something is found.
+const INK = ["text-matsu", "text-ai", "text-shu"];
+
 export function Steps() {
   return (
     <ol className="mt-10 grid gap-12 sm:grid-cols-3 sm:gap-6">
@@ -34,7 +38,7 @@ export function Steps() {
         <Reveal as="li" key={s.title} delay={i * 0.1} className="flex flex-col">
           <s.Plate />
           <div className="mt-6 flex items-baseline gap-3">
-            <span className="font-mono text-sm text-faint tabular-nums">0{i + 1}</span>
+            <span className={`font-mono text-sm font-medium tabular-nums ${INK[i]}`}>0{i + 1}</span>
             <h3 className="text-lg font-medium text-ink">{s.title}</h3>
           </div>
           <p className="mt-2 leading-relaxed text-dim">{s.body}</p>
@@ -70,7 +74,7 @@ function FoldersPlate() {
         <div key={f} className="flex h-9 items-center gap-2.5 rounded-[10px] bg-sunk px-3 text-[13px] text-ink">
           <FolderIcon />
           <span className="truncate font-mono text-[12px]">{f}</span>
-          <svg viewBox="0 0 16 16" className="ml-auto size-3.5 shrink-0 text-shu" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 16 16" className="ml-auto size-3.5 shrink-0 text-matsu" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3.5 8.5l3 3 6-7" />
           </svg>
         </div>
@@ -127,7 +131,7 @@ function ReadingPlate() {
           <div className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-sunk">
             <div className="flex w-5 flex-col gap-[3px]">
               <span className="h-[3px] w-3 rounded-full bg-faint" />
-              <span className="h-[3px] w-5 rounded-full bg-shu" />
+              <span className="h-[3px] w-5 rounded-full bg-ai" />
               <span className="h-[3px] w-4 rounded-full bg-faint" />
             </div>
           </div>
@@ -143,7 +147,7 @@ function ReadingPlate() {
               className="col-start-1 row-start-1 flex items-center gap-1.5 text-ink transition-[opacity,filter] duration-300 ease-[var(--ease-out)]"
               style={{ opacity: done ? 1 : 0, filter: done ? "blur(0px)" : "blur(4px)" }}
             >
-              <span className="size-1.5 rounded-full bg-shu" />
+              <span className="size-1.5 rounded-full bg-matsu" />
               up to date
             </span>
           </div>
@@ -151,7 +155,7 @@ function ReadingPlate() {
         <div className="h-1 overflow-hidden rounded-full bg-sunk">
           <span
             ref={bar}
-            className="block h-full origin-left rounded-full bg-shu transition-opacity duration-500"
+            className="block h-full origin-left rounded-full bg-ai transition-opacity duration-500"
             style={{ transform: done ? "scaleX(1)" : "scaleX(0)", opacity: done ? 0.35 : 1 }}
           />
         </div>

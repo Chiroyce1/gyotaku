@@ -17,6 +17,9 @@ const STATS = [
 
 const EASE = [0.23, 1, 0.32, 1] as const;
 
+// Each figure printed in its own ink, none twice in a row on either layout.
+const INKS = ["text-shu", "text-ai", "text-matsu", "text-kihada", "text-ai", "text-shu"];
+
 type Stat = (typeof STATS)[number];
 
 function final(s: Stat) {
@@ -97,7 +100,9 @@ export default function Numbers() {
             }}
           >
             <dt className="order-2 text-sm leading-snug text-dim">{s.label}</dt>
-            <dd className="order-1 text-[1.75rem] leading-tight font-medium tracking-[-0.03em] text-ink tabular-nums sm:text-4xl">
+            <dd
+              className={`order-1 text-[1.75rem] leading-tight font-medium tracking-[-0.03em] tabular-nums sm:text-4xl ${INKS[i % INKS.length]}`}
+            >
               <Figure stat={s} run={seen} />
             </dd>
           </motion.div>
