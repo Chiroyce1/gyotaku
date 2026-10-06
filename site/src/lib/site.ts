@@ -10,7 +10,7 @@ export const AUTHOR_URL = "https://github.com/xevrion";
 
 // The app version the site describes. Keep in step with the workspace
 // version in ../Cargo.toml when a release goes out.
-export const APP_VERSION = "0.1.3";
+export const APP_VERSION = "0.1.4";
 
 export const TITLE = "gyotaku: search the text in your screenshots";
 export const DESCRIPTION =
