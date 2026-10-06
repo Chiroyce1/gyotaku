@@ -1,8 +1,7 @@
 // Where the site lives, for canonical links, the sitemap and social cards.
-// Not gyotaku.vercel.app: that's someone else's app. Set
-// NEXT_PUBLIC_SITE_URL, or change this, once it has its own domain.
+// NEXT_PUBLIC_SITE_URL overrides it for a preview somewhere else.
 export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://gyotaku-zeta.vercel.app"
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://gyotaku.app"
 ).replace(/\/$/, "");
 
 export const REPO_URL = "https://github.com/xevrion/gyotaku";
