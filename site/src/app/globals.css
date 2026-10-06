@@ -1,0 +1,209 @@
+@import "tailwindcss";
+
+/* The app's own palette, so the page and the window it shows look like one
+   thing. Paper and ink in light, the panel colors in dark, shu (朱, the
+   vermilion of a seal) for whatever the search found. */
+:root {
+  --bg: #f6f6f4;
+  --panel: #ffffff;
+  --sunk: #eeede9;
+  --ink: #18181a;
+  --dim: #6b6a66;
+  --faint: #76756f;
+  --line: rgb(0 0 0 / 0.08);
+  --shu: #e0531f;
+  --shu-soft: rgb(224 83 31 / 0.12);
+  --outline: oklch(0 0 0 / 0.1);
+  --shadow:
+    0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04),
+    0 12px 32px -8px rgb(0 0 0 / 0.12);
+  color-scheme: light;
+}
+
+/* Dark follows the system unless the toggle picked a theme, which is kept
+   on <html data-theme>. The two blocks must stay identical. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e0e10;
+    --panel: #141416;
+    --sunk: #1c1c1f;
+    --ink: #ecebe7;
+    --dim: #9a9993;
+    --faint: #807f79;
+    --line: rgb(255 255 255 / 0.08);
+    --shu: #ff7438;
+    --shu-soft: rgb(255 116 56 / 0.14);
+    --outline: oklch(1 0 0 / 0.1);
+    --shadow:
+      0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4),
+      0 24px 48px -12px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e0e10;
+  --panel: #141416;
+  --sunk: #1c1c1f;
+  --ink: #ecebe7;
+  --dim: #9a9993;
+  --faint: #807f79;
+  --line: rgb(255 255 255 / 0.08);
+  --shu: #ff7438;
+  --shu-soft: rgb(255 116 56 / 0.14);
+  --outline: oklch(1 0 0 / 0.1);
+  --shadow:
+    0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 24px 48px -12px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-sunk: var(--sunk);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-shu: var(--shu);
+  --color-shu-soft: var(--shu-soft);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--bg);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--shu-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--shu);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Pressable things give a little under the finger. The color properties are
+   listed too, since this sits outside Tailwind's layers and would otherwise
+   cancel a hover color fade on the same element. */
+.press {
+  transition-property: scale, color, background-color, border-color, opacity;
+  transition-duration: 160ms, 150ms, 150ms, 150ms, 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.press:active {
+  scale: 0.96;
+}
+
+/* Paper. A faint grain over everything, so the page reads as a print and
+   not a screen. Plain alpha specks on one fixed layer, no blend mode, so
+   scrolling only moves the page under it and never re-blends. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body::before {
+    filter: invert(1);
+    opacity: 0.03;
+  }
+}
+:root[data-theme="dark"] body::before {
+  filter: invert(1);
+  opacity: 0.03;
+}
+
+/* The hero comes in once, in reading order, 100ms apart. The headline and
+   lede only rise out of a blur and never start invisible, so the largest
+   paint isn't held back waiting for a fade. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    filter: blur(4px);
+  }
+}
+@keyframes settle {
+  from {
+    translate: 0 8px;
+    filter: blur(4px);
+  }
+}
+.rise {
+  animation: rise 700ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 100ms);
+}
+.rise-text {
+  animation: settle 700ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 100ms);
+}
+
+/* The headline's last word gets found, the way the app lights a match: a
+   shu box wipes across it from the left once the headline has settled. */
+@keyframes found {
+  from {
+    clip-path: inset(0 100% 0 0 round 0.18em);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 0.18em);
+  }
+}
+/* The box bleeds a little to the left so the word itself stays on the text
+   edge when it wraps onto its own line on a phone. */
+.found {
+  position: relative;
+  white-space: nowrap;
+  margin-inline: -0.08em 0;
+  padding-inline: 0.08em 0.1em;
+}
+.found::before {
+  content: "";
+  position: absolute;
+  inset: 0.12em 0 0;
+  border-radius: 0.18em;
+  background: var(--shu-soft);
+  box-shadow: inset 0 0 0 2px var(--shu);
+  z-index: -1;
+  animation: found 650ms var(--ease-in-out) 750ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .rise-text,
+  .found::before {
+    animation: none;
+  }
+  .press:active {
+    scale: none;
+  }
+}
