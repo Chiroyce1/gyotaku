@@ -100,10 +100,57 @@ remove_menu_entry() {
     refresh_menus
 }
 
+MAC_APP="$HOME/Applications/gyotaku.app"
+
+# On a mac the programs are plain files, which Spotlight, Launchpad and
+# Finder don't list, so once quit there was no way back in but a terminal.
+# A small app bundle fixes that: it runs the installed gyotaku-app, which
+# wakes the copy already running or becomes it. LSUIElement keeps it out of
+# the Dock, the way Raycast and other launchers run; it lives in the menu
+# bar instead.
+install_mac_app() {
+    version=$("$BIN_DIR/gyotaku" --version 2>/dev/null | cut -d' ' -f2)
+    mkdir -p "$MAC_APP/Contents/MacOS" "$MAC_APP/Contents/Resources"
+    cat >"$MAC_APP/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>gyotaku</string>
+	<key>CFBundleDisplayName</key><string>gyotaku</string>
+	<key>CFBundleIdentifier</key><string>$APP_ID</string>
+	<key>CFBundleExecutable</key><string>gyotaku</string>
+	<key>CFBundleIconFile</key><string>gyotaku</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>${version:-0}</string>
+	<key>LSMinimumSystemVersion</key><string>11.0</string>
+	<key>LSUIElement</key><true/>
+	<key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+EOF
+    cat >"$MAC_APP/Contents/MacOS/gyotaku" <<EOF
+#!/bin/sh
+exec "$BIN_DIR/gyotaku-app" "\$@"
+EOF
+    chmod 755 "$MAC_APP/Contents/MacOS/gyotaku"
+    # The icon, made from the PNG the Linux menu entry uses. sips ships
+    # with every mac. Without it the app just shows a generic icon.
+    png="$tmp/icon.png"
+    if download "https://raw.githubusercontent.com/$REPO/main/packaging/linux/icons/hicolor/512x512/apps/$APP_ID.png" "$png" 2>/dev/null; then
+        sips -s format icns "$png" --out "$MAC_APP/Contents/Resources/gyotaku.icns" >/dev/null 2>&1 || true
+    fi
+    # Listed in Spotlight right away instead of after the next index pass.
+    lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    [ -x "$lsregister" ] && "$lsregister" -f "$MAC_APP" >/dev/null 2>&1 || true
+    touch "$MAC_APP"
+}
+
 uninstall() {
     step "Removing gyotaku"
     stop_background
     rm -f "$BIN_DIR/gyotaku" "$BIN_DIR/gyotaku-app"
+    [ "$(uname -s)" = Darwin ] && rm -rf "$MAC_APP"
     remove_menu_entry
     say "Removed the programs from $BIN_DIR."
     say ""
@@ -193,6 +240,11 @@ for bin in gyotaku gyotaku-app; do
     chmod 755 "$BIN_DIR/.$bin.new"
     mv -f "$BIN_DIR/.$bin.new" "$BIN_DIR/$bin"
 done
+
+if [ "$os" = macos ]; then
+    install_mac_app
+    say "Added gyotaku to $HOME/Applications, so Spotlight and Launchpad can open it."
+fi
 
 # The menu entry and icon, so gyotaku shows up in the app launcher. Its Exec
 # is the full path, since launchers don't all search ~/.local/bin. Releases
@@ -312,7 +364,8 @@ step "One last step: a keyboard shortcut"
 if [ "$os" = macos ]; then
     say "None needed: the app registers alt shift s itself, which opens the"
     say "search window. Change the key in the settings."
-    say "Pressing it again closes the window."
+    say "Pressing it again closes the window. While it waits it sits in the menu"
+    say "bar, not the Dock; quit it from there."
 else
     say "Bind any key you like to run:  $BIN_DIR/gyotaku-app"
     desktop=$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')

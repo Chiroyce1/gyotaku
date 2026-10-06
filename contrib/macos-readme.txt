@@ -21,12 +21,15 @@ By hand:
    whether to keep reading new ones in the background. Saying yes
    installs a launchd agent that starts it when you sign in.
 3. Press Alt+Shift+S anywhere to open or close the search window.
+   While it waits it sits in the menu bar instead of the Dock; its
+   menu opens the window or settings, and quits it. Cmd+W and Cmd+Q
+   in the window just put it away.
 
 The first run downloads the OCR models once (about 22 MB). After that
 everything happens on this computer, nothing is uploaded.
 
 To remove it: turn off background reading in settings (Ctrl+,), quit
-(Ctrl+Q), and delete the folder. The index lives in
+from the menu bar icon, and delete the folder. The index lives in
 ~/Library/Application Support/gyotaku.
 
 Problems and ideas: https://github.com/xevrion/gyotaku/issues

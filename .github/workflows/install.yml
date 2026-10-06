@@ -96,6 +96,20 @@ jobs:
           "$HOME/.local/bin/gyotaku" --version
           "$HOME/.local/bin/gyotaku" ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
           grep -q "cores per screenshot" ocr.txt
+      # The app in ~/Applications that Spotlight and Launchpad open, kept out
+      # of the Dock like a launcher.
+      - name: open the app bundle
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          app="$HOME/Applications/gyotaku.app"
+          plutil -lint "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist" | grep -q true
+          test -x "$app/Contents/MacOS/gyotaku"
+          test -s "$app/Contents/Resources/gyotaku.icns"
+          open "$app"
+          sleep 8
+          pgrep -x gyotaku-app >/dev/null || { echo "::error::opening the app bundle didn't start gyotaku"; exit 1; }
+          pkill -x gyotaku-app || true
       - name: update
         if: steps.release.outputs.skip != 'true'
         run: |
@@ -106,6 +120,7 @@ jobs:
         run: |
           sh install.sh --uninstall
           test ! -e "$HOME/.local/bin/gyotaku" && test ! -e "$HOME/.local/bin/gyotaku-app"
+          test ! -e "$HOME/Applications/gyotaku.app"
 
   windows:
     name: windows

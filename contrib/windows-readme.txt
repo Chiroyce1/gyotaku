@@ -26,6 +26,8 @@ By hand:
    Snipping Tool's screenshots) and whether to keep reading new ones in
    the background. Saying yes also starts gyotaku when you sign in.
 3. Press Alt+Shift+S anywhere to open or close the search window.
+   While it waits it sits in the notification area: click its icon to
+   open the window, right-click it for settings or to quit.
 
 The first run downloads the OCR models once (about 22 MB). After that
 everything happens on this computer, nothing is uploaded.
@@ -34,8 +36,8 @@ Windows may warn that the app is from an unknown publisher, since it isn't
 signed yet. Choose "More info" and then "Run anyway".
 
 To remove it: installed with the setup, uninstall it from Settings, Apps.
-Otherwise turn off background reading in settings (Ctrl+,), quit (Ctrl+Q),
-and delete the folder. The index lives in %LOCALAPPDATA%\gyotaku and
+Otherwise turn off background reading in settings (Ctrl+,), quit from the
+notification area icon, and delete the folder. The index lives in %LOCALAPPDATA%\gyotaku and
 %APPDATA%\gyotaku.
 
 Problems and ideas: https://github.com/xevrion/gyotaku/issues
