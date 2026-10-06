@@ -7,6 +7,7 @@
 - [Settings](#settings)
 - [Background indexing](#background-indexing)
 - [Copied images](#copied-images)
+- [Other scripts](#other-scripts)
 - [Command-line interface](#command-line-interface)
 - [Flags and environment variables](#flags-and-environment-variables)
 - [File locations](#file-locations)
@@ -103,11 +104,12 @@ Open settings with Ctrl+,.
 | Theme | System, light or dark. |
 | Background indexing | Enables or disables the background indexer. See [Background indexing](#background-indexing). |
 | Save copied images | Off by default. Saves every image copied to the clipboard into its own folder, so images that were never saved anywhere become searchable. See [Copied images](#copied-images). |
+| Read Devanagari | Off by default. Also reads Hindi, Marathi, Nepali and other text in Devanagari. See [Other scripts](#other-scripts). |
 | Cores per screenshot | Number of CPU cores used to read a single screenshot. Higher values are faster; lower values leave more capacity for other work. Indexing always runs at idle priority. |
 | Thumbnail cache | Clears cached thumbnails. They are regenerated on demand. |
 | Shortcuts | Lists every keyboard shortcut. Select a command and press Enter, then press the new keys; Escape cancels and Delete restores the default. New keys must include Ctrl, Alt or Super (or be a function key) and must not already be in use. Navigation keys (Escape, Enter, arrows, Page Up and Page Down, Shift+arrows) are fixed. |
 
-Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list and to saving copied images without a restart.
+Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list, to saving copied images and to the scripts it reads without a restart.
 
 ## Background indexing
 
@@ -162,6 +164,22 @@ Nothing watches the clipboard while the setting is off, and only images are ever
 
 Because only the background indexer watches the clipboard, copied images are saved only while it runs. Messages about the clipboard watcher appear in its log (`journalctl --user -u gyotaku-watch` on systemd).
 
+## Other scripts
+
+The default text reader covers Latin, Chinese, Japanese and Greek. With **Read Devanagari** enabled, Hindi, Marathi, Nepali and other text in Devanagari is read too, including lines that mix it with English. In `config.toml` this is:
+
+```toml
+scripts = ["devanagari"]
+```
+
+Enabling it downloads a 7.9 MB model the first time. If the download fails, for example offline, reading continues without it and the status line says so; the next change to the settings tries again.
+
+It applies to screenshots read from then on. Screenshots read before keep the text they were read with, since reading the whole library again would take as long as the first time. To read a particular screenshot again, touch it (`touch path/to/screenshot.png`), and the background indexer picks it up as changed.
+
+Lines that the default reader already read with confidence, and that contain no Devanagari, are never read twice, so the extra cost depends on the screenshot. On 25 screenshots with no Devanagari in them, about a quarter of lines were read a second time. See [Performance](performance.md#other-scripts).
+
+To check a single image: `gyotaku ocr --script devanagari path/to/screenshot.png`.
+
 ## Command-line interface
 
 | Command | Description |
@@ -189,7 +207,7 @@ Because only the background indexer watches the clipboard, copied images are sav
 
 | Path | Contents |
 |---|---|
-| `~/.config/gyotaku/config.toml` | Folders, theme, cores per screenshot |
+| `~/.config/gyotaku/config.toml` | Folders, theme, cores per screenshot, extra scripts |
 | `~/.local/share/gyotaku/index.db` | Text index |
 | `~/.local/share/gyotaku/models/` | OCR models |
 | `~/.local/share/gyotaku/runtime/` | ONNX Runtime |

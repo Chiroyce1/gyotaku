@@ -39,10 +39,17 @@ PaddleOCR's defaults target photographs of documents. gyotaku changes them for s
 |---|---|---|---|
 | Detection model | Small | Tiny | 4.6x faster, retains 99.6% of words |
 | Detection input size | Upscale to 736 px short side; never downscale | Downscale only, to ~1 megapixel | Screen text is already legible at native size. Upscaling a small crop cost 330 MB of memory with no accuracy gain. |
-| Box geometry | Rotated rectangles | Axis-aligned rectangles | Screenshot text is horizontal, so connected components are sufficient |
+| Box geometry | Rotated rectangles | Axis-aligned rectangles | Screenshot text is horizontal or vertical, so connected components are sufficient |
+| Vertical text | Columns turned counterclockwise | Turned counterclockwise, and clockwise when that reads poorly | Counterclockwise reads vertical Japanese and Chinese; a sideways label reading upwards, such as a chart axis, needs the other turn |
 | Recognition batching | 6 lines per batch | Batched by total width | The recognizer scores ~18,000 characters per step, so the output tensor dominates memory |
 
-Single-character lines are discarded, because interface icons are frequently recognized as a single high-confidence character.
+Single-character lines are discarded, because interface icons are frequently recognized as a single high-confidence character. A box at least 1.5 times taller than wide is a column: it is turned upright before recognition, and dropped if neither turn reads it with a score of 0.8 or more, since narrow icons outnumber real columns.
+
+### Other scripts
+
+The default recognizer covers Latin, Chinese, Japanese and Greek. Other scripts are opt-in, each with a recognizer of its own that is downloaded the first time it is enabled. Devanagari uses PaddleOCR's PP-OCRv5 Devanagari model (7.9 MB), whose alphabet also includes Latin letters, digits and punctuation.
+
+Detection runs once and the default recognizer reads every line. A line is read again by the extra recognizer when the default one was unsure of it (score under 0.9), or when it contains a long unread stretch: CTC decoding reports the longest run of blank steps, and a glyph outside the model's alphabet produces exactly that. A line that is half English and half Hindi reads the English confidently and leaves a gap of 24 steps where the Hindi was; fully read lines have gaps of 2 to 5. The second reading replaces the first only if it scores higher and contains the script it is for, so enabling a script never changes how English or Chinese text is read.
 
 ## Index and search
 

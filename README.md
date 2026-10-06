@@ -228,7 +228,8 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [ ] Group bursts of near-identical screenshots
 - [x] Search filters for the folder (`in:discord`) and the date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
 - [ ] An `app:` filter, which first needs a way to know which app a screenshot was taken in: the file itself doesn't say
-- [ ] More scripts, starting with Devanagari, and vertical text
+- [x] Devanagari (Hindi, Marathi, Nepali), opt-in in settings, and vertical text
+- [ ] More scripts: Cyrillic, Hangul, Arabic, Thai and the rest
 - [ ] Handwriting: measure how well neat and messy handwritten notes read, and add an optional handwriting pass if it's worth it
 
 Suggestions are welcome as [feature requests](https://github.com/xevrion/gyotaku/issues/new?template=feature_request.yml).

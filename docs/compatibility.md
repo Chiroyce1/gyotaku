@@ -66,9 +66,10 @@ The recognition model's character set contains approximately 18,700 characters c
 |---|---|
 | Latin (English) | Verified |
 | Chinese, Japanese | Supported by the model, not yet verified |
-| Devanagari, Cyrillic, Hangul, Arabic, Hebrew, Thai and others | Not supported |
+| Devanagari (Hindi, Marathi, Nepali and others) | Opt-in with **Read Devanagari** in settings, an extra 7.9 MB model. Verified on rendered Hindi and Marathi text, including lines mixing Hindi and English |
+| Cyrillic, Hangul, Arabic, Hebrew, Thai and others | Not supported |
 
-Text detection only considers horizontal lines. Rotated and vertical text is not detected.
+Horizontal lines and vertical columns are read: columns of Japanese or Chinese, and labels turned 90 degrees either way, such as chart axes. Text at other angles is not.
 
 ## Known limitations
 
