@@ -103,6 +103,8 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         .filter(|p| w.indexer.needs_reading(p))
         .collect();
     let mut caught_up = backlog.is_empty();
+    // Shots read before bursts existed may still need theirs worked out.
+    let mut settling = true;
     let mut power = Power::default();
     // How far through the backlog, for the window: (done, of).
     let mut progress = (0, backlog.len());
@@ -130,10 +132,10 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         // Block for as long as there is nothing else to do.
         let wait = if !w.pending.is_empty() || !w.leaving.is_empty() {
             SETTLE
-        } else if !backlog.is_empty() || !w.arrived.is_empty() || w.rescan {
+        } else if !backlog.is_empty() || settling || !w.arrived.is_empty() || w.rescan {
             // Working through an old library can wait, a laptop's battery
             // matters more. Anything new still wakes this straight away.
-            if power.on_battery() && !backlog.is_empty() {
+            if power.on_battery() && (!backlog.is_empty() || settling) {
                 BATTERY_PACE
             } else {
                 Duration::ZERO
@@ -278,8 +280,25 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 w.indexer.index.visible_len()?
             );
         }
+
+        // Last of all, with nothing left to read: bursts for shots read
+        // before there were any, a batch at a time so a screenshot taken
+        // meanwhile never waits on it for long. Quietly, the window shows
+        // the shots either way, only not stacked yet.
+        if backlog.is_empty() && settling {
+            settling = match w.indexer.settle_some(SETTLE_BATCH) {
+                Ok(n) => n > 0,
+                Err(e) => {
+                    eprintln!("working out similar screenshots: {e:#}");
+                    false
+                }
+            };
+        }
     }
 }
+
+// About 50 thumbnails decoded and compared, well under a second.
+const SETTLE_BATCH: usize = 50;
 
 /// One watcher at a time. A second would read every new screenshot again and
 /// fight the first over the index, so it just leaves. The lock is held for

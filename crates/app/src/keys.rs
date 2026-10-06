@@ -18,7 +18,7 @@ pub struct Shortcut {
     bind: fn(&str) -> KeyBinding,
 }
 
-pub const SHORTCUTS: [Shortcut; 9] = [
+pub const SHORTCUTS: [Shortcut; 10] = [
     Shortcut {
         name: "copy_text",
         label: "copy text",
@@ -42,6 +42,12 @@ pub const SHORTCUTS: [Shortcut; 9] = [
         label: "show in its folder",
         default: "ctrl-shift-o",
         bind: |k| KeyBinding::new(k, Reveal, Some("Gyotaku")),
+    },
+    Shortcut {
+        name: "similar",
+        label: "show or hide similar screenshots",
+        default: "ctrl-e",
+        bind: |k| KeyBinding::new(k, Similar, Some("Gyotaku")),
     },
     Shortcut {
         name: "mark_all",

@@ -37,6 +37,10 @@ pub struct Config {
     /// know still loads; see `Config::scripts`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scripts: Vec<String>,
+    /// Near-identical shots taken close together show as one tile, the rest
+    /// a key away (see `burst`). On unless turned off, and only written then.
+    #[serde(skip_serializing_if = "Clone::clone")]
+    pub group_similar: bool,
     /// Shortcuts changed from their defaults, by name, like
     /// `trash = "ctrl-backspace"`. Only the changed ones are written. Last,
     /// since a table has to come after the plain values.
@@ -53,6 +57,7 @@ impl Default for Config {
             clipboard: false,
             clipboard_folder: None,
             scripts: Vec::new(),
+            group_similar: true,
             keys: BTreeMap::new(),
         }
     }
@@ -234,6 +239,7 @@ mod tests {
             clipboard: true,
             clipboard_folder: Some("/c/copied".into()),
             scripts: vec!["devanagari".into()],
+            group_similar: false,
             keys: BTreeMap::from([("trash".into(), "ctrl-backspace".into())]),
         };
         config.save_to(&path).unwrap();
@@ -242,6 +248,7 @@ mod tests {
             text.contains("[keys]\ntrash = \"ctrl-backspace\""),
             "{text}"
         );
+        assert!(text.contains("group_similar = false"), "{text}");
         assert_eq!(Config::load_from(&path).unwrap(), Some(config));
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
@@ -252,9 +259,11 @@ mod tests {
         Config::default().save_to(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
-            !text.contains("keys") && !text.contains("clipboard"),
+            !text.contains("keys") && !text.contains("clipboard") && !text.contains("similar"),
             "{text}"
         );
+        // Missing means on.
+        assert!(Config::load_from(&path).unwrap().unwrap().group_similar);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

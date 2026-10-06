@@ -6,6 +6,7 @@ use rusqlite::{
     Connection, OptionalExtension, TransactionBehavior, params, params_from_iter, types::Value,
 };
 
+use crate::burst::{Likeness, Shape, WINDOW, alike};
 use crate::query::{Filter, Query};
 use crate::{Line, Rect, Shot};
 
@@ -13,7 +14,7 @@ use crate::{Line, Rect, Shot};
 // so an unknown version gets dropped and rebuilt, but reading everything
 // again takes most of an hour on a big folder, so a version that can be
 // brought forward from the text already stored is, see `init`.
-const SCHEMA: i32 = 2;
+const SCHEMA: i32 = 3;
 
 // The trigram tokenizer indexes every 3 character window, which is what makes
 // "nutsmp" find "donutsmp.net". The flip side is that it cannot match anything
@@ -47,6 +48,16 @@ const NEAR: &str = "
     END;
 ";
 
+// Bursts of near-identical shots, version 3, see `burst`. `look` is the
+// thumbnail's difference hash and `burst` names the burst a shot is in, by
+// the lowest id in it. Both start out empty for shots read before version
+// 3, and a burst that's NULL is one the reader still has to work out.
+const BURSTS: &str = "
+    ALTER TABLE shots ADD COLUMN look INTEGER;
+    ALTER TABLE shots ADD COLUMN burst INTEGER;
+    CREATE INDEX shots_by_mtime ON shots(mtime);
+";
+
 pub struct Index {
     db: Connection,
 }
@@ -64,6 +75,10 @@ pub struct Hit {
     /// Found only once look-alike characters were treated as one, like `0`
     /// for `O`. These always come after every exact match.
     pub near: bool,
+    pub look: Option<u64>,
+    /// The burst of near-identical shots this one is in, named by the
+    /// lowest id in it, or its own id when it's alone (see `burst`).
+    pub burst: i64,
 }
 
 impl Index {
@@ -97,10 +112,11 @@ impl Index {
         match version {
             SCHEMA => {}
             // Version 1 had everything but the folded text, which can be
-            // made from the text it already has.
-            1 => {
-                tx.execute_batch(NEAR)?;
-                {
+            // made from the text it already has, and version 2 everything
+            // but the bursts, which the reader works out in the background.
+            1 | 2 => {
+                if version == 1 {
+                    tx.execute_batch(NEAR)?;
                     let mut all = tx.prepare("SELECT rowid, text FROM shots_fts")?;
                     let mut add =
                         tx.prepare("INSERT INTO shots_near (rowid, text) VALUES (?1, ?2)")?;
@@ -110,6 +126,7 @@ impl Index {
                         add.execute(params![r.get::<_, i64>(0)?, fold(&text)])?;
                     }
                 }
+                tx.execute_batch(BURSTS)?;
                 tx.pragma_update(None, "user_version", SCHEMA)?;
             }
             _ => {
@@ -121,6 +138,7 @@ impl Index {
                 )?;
                 tx.execute_batch(TABLES)?;
                 tx.execute_batch(NEAR)?;
+                tx.execute_batch(BURSTS)?;
                 tx.pragma_update(None, "user_version", SCHEMA)?;
             }
         }
@@ -172,8 +190,14 @@ impl Index {
         delete(&tx, &path)?;
 
         tx.execute(
-            "INSERT INTO shots (path, mtime, width, height) VALUES (?1, ?2, ?3, ?4)",
-            params![path, shot.mtime, shot.width, shot.height],
+            "INSERT INTO shots (path, mtime, width, height, look) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                path,
+                shot.mtime,
+                shot.width,
+                shot.height,
+                shot.look.map(|l| l as i64)
+            ],
         )?;
         let id = tx.last_insert_rowid();
 
@@ -203,9 +227,40 @@ impl Index {
             "INSERT INTO shots_near (rowid, text) VALUES (?1, ?2)",
             params![id, fold(&text)],
         )?;
+        settle(&tx, id)?;
 
         tx.commit()?;
         Ok(id)
+    }
+
+    /// Shots whose burst hasn't been worked out yet, newest first, with
+    /// whether their look is known. Those are the ones read before bursts
+    /// existed; the reader settles them in the background, see `settle`.
+    pub fn unsettled(&self, limit: usize) -> Result<Vec<(i64, PathBuf, bool)>> {
+        let mut stmt = self.db.prepare_cached(
+            "SELECT id, path, look IS NOT NULL FROM shots
+             WHERE burst IS NULL AND width > 0 ORDER BY mtime DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit as i64], |r| {
+                Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?), r.get(2)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Records a shot's look when there is one, and puts it in its burst.
+    pub fn settle(&mut self, id: i64, look: Option<u64>) -> Result<()> {
+        let tx = self.write()?;
+        if let Some(look) = look {
+            tx.execute(
+                "UPDATE shots SET look = ?2 WHERE id = ?1",
+                params![id, look as i64],
+            )?;
+        }
+        settle(&tx, id)?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Moves a shot to a new path without touching its text, since a rename
@@ -346,7 +401,8 @@ impl Index {
             ("shots_fts", "f")
         };
         let mut sql = format!(
-            "SELECT s.id, s.path, s.mtime, s.width, s.height
+            "SELECT s.id, s.path, s.mtime, s.width, s.height, s.look,
+                    COALESCE(s.burst, s.id)
              FROM {table} {alias} JOIN shots s ON s.id = {alias}.rowid"
         );
         // Short terms are matched against the text as it was read, even
@@ -409,6 +465,8 @@ impl Index {
                     height: r.get(4)?,
                     lines: Vec::new(),
                     near: false,
+                    look: r.get::<_, Option<i64>>(5)?.map(|l| l as u64),
+                    burst: r.get(6)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -434,25 +492,94 @@ impl Index {
     }
 
     pub fn lines(&self, shot_id: i64) -> Result<Vec<Line>> {
-        let mut stmt = self.db.prepare_cached(
-            "SELECT text, x, y, w, h, score FROM lines WHERE shot_id = ?1 ORDER BY id",
-        )?;
-        let lines = stmt
-            .query_map([shot_id], |r| {
-                Ok(Line {
-                    text: r.get(0)?,
-                    rect: Rect {
-                        x: r.get(1)?,
-                        y: r.get(2)?,
-                        w: r.get(3)?,
-                        h: r.get(4)?,
-                    },
-                    score: r.get(5)?,
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(lines)
+        read_lines(&self.db, shot_id)
     }
+}
+
+fn read_lines(db: &Connection, shot_id: i64) -> Result<Vec<Line>> {
+    let mut stmt = db.prepare_cached(
+        "SELECT text, x, y, w, h, score FROM lines WHERE shot_id = ?1 ORDER BY id",
+    )?;
+    let lines = stmt
+        .query_map([shot_id], |r| {
+            Ok(Line {
+                text: r.get(0)?,
+                rect: Rect {
+                    x: r.get(1)?,
+                    y: r.get(2)?,
+                    w: r.get(3)?,
+                    h: r.get(4)?,
+                },
+                score: r.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(lines)
+}
+
+/// Puts a shot in its burst: compares it with every settled shot taken
+/// within `burst::WINDOW` of it, and joins the bursts of those it's alike
+/// into one, named by the lowest id among them. Shots not settled yet are
+/// left alone; they meet this one when their own turn comes.
+fn settle(db: &Connection, id: i64) -> Result<()> {
+    let me = db
+        .query_row(
+            "SELECT mtime, width, height, look FROM shots WHERE id = ?1 AND width > 0",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, u32>(1)?,
+                    r.get::<_, u32>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((mtime, width, height, look)) = me else {
+        return Ok(());
+    };
+    let me = Shape::new(width, height, look.map(|l| l as u64), &read_lines(db, id)?);
+
+    let mut stmt = db.prepare_cached(
+        "SELECT id, mtime, width, height, look, burst FROM shots
+         WHERE width > 0 AND burst IS NOT NULL AND id != ?1 AND mtime BETWEEN ?2 AND ?3",
+    )?;
+    let near = stmt
+        .query_map(params![id, mtime - WINDOW, mtime + WINDOW], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, u32>(2)?,
+                r.get::<_, u32>(3)?,
+                r.get::<_, Option<i64>>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut joined = Vec::new();
+    for (other, when, w, h, look, burst) in near {
+        if joined.contains(&burst) {
+            continue;
+        }
+        let shape = Shape::new(w, h, look.map(|l| l as u64), &read_lines(db, other)?);
+        if alike(&Likeness::of(&me, &shape), (mtime - when).abs()) {
+            joined.push(burst);
+        }
+    }
+    let name = joined.iter().copied().fold(id, i64::min);
+    db.execute(
+        "UPDATE shots SET burst = ?2 WHERE id = ?1",
+        params![id, name],
+    )?;
+    for burst in joined.into_iter().filter(|b| *b != name) {
+        db.execute(
+            "UPDATE shots SET burst = ?2 WHERE burst = ?1",
+            params![burst, name],
+        )?;
+    }
+    Ok(())
 }
 
 fn delete(tx: &rusqlite::Transaction, path: &str) -> Result<bool> {
@@ -600,6 +727,7 @@ mod tests {
             mtime,
             width: 2568,
             height: 1428,
+            look: None,
         }
     }
 
@@ -828,6 +956,7 @@ mod tests {
                 mtime: 1,
                 width: 10,
                 height: 10,
+                look: None,
             },
             &[],
         )
@@ -847,6 +976,7 @@ mod tests {
             mtime: 999,
             width: 0,
             height: 0,
+            look: None,
         };
         idx.insert(&broken, &[line("donutsmp", 0.1)]).unwrap();
         assert!(idx.is_current(Path::new("/shots/broken.png"), 999).unwrap());
@@ -1086,10 +1216,106 @@ mod tests {
             near(&idx.search("0rder", 10).unwrap()),
             [("/shots/old.png", false)]
         );
+        // Read before bursts existed, so it waits for the reader to settle it.
+        assert_eq!(
+            idx.unsettled(10).unwrap(),
+            [(7, PathBuf::from("/shots/old.png"), false)]
+        );
         drop(idx);
         // And opening it again leaves it be.
-        assert_eq!(Index::open(&path).unwrap().len().unwrap(), 1);
+        let mut idx = Index::open(&path).unwrap();
+        assert_eq!(idx.len().unwrap(), 1);
+        idx.settle(7, Some(42)).unwrap();
+        assert!(idx.unsettled(10).unwrap().is_empty());
+        let hit = &idx.find("", 10).unwrap()[0];
+        assert_eq!((hit.look, hit.burst), (Some(42), 7));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn page(words: &[&str]) -> Vec<Line> {
+        words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| line(w, 0.1 + i as f32 * 0.1))
+            .collect()
+    }
+
+    const PAGE: [&str; 4] = [
+        "Your order has shipped",
+        "Arriving on Thursday",
+        "Track your package",
+        "Order number 4021",
+    ];
+
+    fn burst_of(idx: &Index, path: &str) -> i64 {
+        idx.find("", 100)
+            .unwrap()
+            .into_iter()
+            .find(|h| h.path.to_str() == Some(path))
+            .unwrap()
+            .burst
+    }
+
+    #[test]
+    fn the_same_page_twice_is_one_burst() {
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.insert(&shot("/a.png", 1000), &page(&PAGE)).unwrap();
+        idx.insert(&shot("/b.png", 1030), &page(&PAGE)).unwrap();
+        idx.insert(
+            &shot("/c.png", 1060),
+            &page(&["Something else", "entirely different", "on this page"]),
+        )
+        .unwrap();
+        // Too long after to be the same burst, however alike.
+        idx.insert(&shot("/d.png", 1000 + 2 * WINDOW), &page(&PAGE))
+            .unwrap();
+        let (a, b, c, d) = (
+            burst_of(&idx, "/a.png"),
+            burst_of(&idx, "/b.png"),
+            burst_of(&idx, "/c.png"),
+            burst_of(&idx, "/d.png"),
+        );
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, d);
+    }
+
+    #[test]
+    fn a_shot_between_two_bursts_joins_them() {
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.insert(&shot("/first.png", 0), &page(&PAGE)).unwrap();
+        idx.insert(&shot("/last.png", WINDOW + 100), &page(&PAGE))
+            .unwrap();
+        assert_ne!(burst_of(&idx, "/first.png"), burst_of(&idx, "/last.png"));
+        // Taken in the middle, within reach of both.
+        idx.insert(&shot("/middle.png", WINDOW / 2 + 50), &page(&PAGE))
+            .unwrap();
+        let first = burst_of(&idx, "/first.png");
+        assert_eq!(first, burst_of(&idx, "/middle.png"));
+        assert_eq!(first, burst_of(&idx, "/last.png"));
+        // Named by the lowest id, which is the first one read.
+        assert_eq!(
+            first,
+            idx.find("", 10)
+                .unwrap()
+                .iter()
+                .map(|h| h.id)
+                .min()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn hidden_shots_are_never_settled() {
+        let mut idx = Index::open_in_memory().unwrap();
+        let broken = Shot {
+            look: None,
+            width: 0,
+            height: 0,
+            ..shot("/broken.png", 5)
+        };
+        idx.insert(&broken, &[]).unwrap();
+        assert!(idx.unsettled(10).unwrap().is_empty());
     }
 
     #[test]

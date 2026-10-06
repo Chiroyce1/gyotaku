@@ -50,6 +50,7 @@ enum Row {
     Folder(usize),
     AddFolder,
     Theme,
+    Similar,
     Background,
     Clipboard,
     /// An extra writing system to read, by its place in `Script::ALL`.
@@ -62,7 +63,13 @@ enum Row {
 impl Settings {
     fn rows(&self) -> Vec<Row> {
         let mut rows: Vec<Row> = (0..self.config.folders.len()).map(Row::Folder).collect();
-        rows.extend([Row::AddFolder, Row::Theme, Row::Background, Row::Clipboard]);
+        rows.extend([
+            Row::AddFolder,
+            Row::Theme,
+            Row::Similar,
+            Row::Background,
+            Row::Clipboard,
+        ]);
         rows.extend((0..Script::ALL.len()).map(Row::Script));
         rows.extend([Row::Threads, Row::ClearThumbs]);
         rows.extend((0..SHORTCUTS.len()).map(Row::Shortcut));
@@ -245,6 +252,7 @@ impl Gyotaku {
                             Some(Row::Background) => self.set_background(forward, cx),
                             Some(Row::Clipboard) => self.set_clipboard(forward, cx),
                             Some(Row::Script(i)) => self.set_script(i, forward, cx),
+                            Some(Row::Similar) => self.set_grouped(forward, cx),
                             _ => {}
                         }
                     }
@@ -262,6 +270,10 @@ impl Gyotaku {
                         Some(Row::Script(i)) => {
                             let on = s.config.scripts().contains(&Script::ALL[i]);
                             self.set_script(i, !on, cx)
+                        }
+                        Some(Row::Similar) => {
+                            let on = s.config.group_similar;
+                            self.set_grouped(!on, cx)
                         }
                         Some(Row::Threads) => self.change_threads(1, cx),
                         Some(Row::ClearThumbs) => self.clear_thumbnails(cx),
@@ -536,6 +548,20 @@ impl Gyotaku {
         self.save(config, cx);
     }
 
+    /// Stacks similar shots, or shows every one. The results behind settings
+    /// are redone, so they're right when it closes.
+    fn set_grouped(&mut self, on: bool, cx: &mut Context<Self>) {
+        let mut config = self.current_config();
+        if config.group_similar == on {
+            return;
+        }
+        config.group_similar = on;
+        self.grouped = on;
+        self.unfolded.clear();
+        self.refresh(cx);
+        self.save(config, cx);
+    }
+
     fn remove_folder(&mut self, i: usize, cx: &mut Context<Self>) {
         let mut config = self.current_config();
         if i < config.folders.len() {
@@ -803,6 +829,24 @@ impl Gyotaku {
                             },
                             theme,
                         ))
+                        .into_any_element()
+                }
+                Row::Similar => {
+                    let detail: SharedString = format!(
+                        "near-identical shots taken close together show as one, {} shows the rest",
+                        keys::shown("similar", cx)
+                    )
+                    .into();
+                    self.row(ix, selected, theme, cx, Key::Enter)
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .child("group similar screenshots")
+                                .child(div().text_xs().text_color(theme.muted).child(detail)),
+                        )
+                        .child(switch("similar", config.group_similar, theme))
                         .into_any_element()
                 }
                 Row::Background => {

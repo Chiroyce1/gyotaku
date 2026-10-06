@@ -115,12 +115,13 @@ impl Indexer {
         }
 
         let lines = self.ocr.read(&img)?;
-        write_thumbnail(&img, &gyotaku_core::thumb_path(path)?)?;
+        let look = write_thumbnail(&img, &gyotaku_core::thumb_path(path)?)?;
         let shot = Shot {
             path: path.to_owned(),
             mtime,
             width: img.width(),
             height: img.height(),
+            look: Some(look),
         };
         self.index.insert(&shot, &lines)?;
 
@@ -139,6 +140,7 @@ impl Indexer {
             mtime,
             width: 0,
             height: 0,
+            look: None,
         };
         self.index.insert(&shot, &[])?;
         Ok(Outcome::Hidden(why))
@@ -154,6 +156,22 @@ impl Indexer {
         );
         let _ = fs::rename(old, new);
         Ok(true)
+    }
+
+    /// Works out the bursts of up to `n` shots read before bursts existed,
+    /// their looks from their thumbnails, and returns how many there were.
+    /// A shot whose thumbnail is gone is grouped by its text alone.
+    pub fn settle_some(&mut self, n: usize) -> Result<usize> {
+        let todo = self.index.unsettled(n)?;
+        for (id, path, has_look) in &todo {
+            let look = (!has_look)
+                .then(|| gyotaku_core::thumb_path(path).ok())
+                .flatten()
+                .and_then(|thumb| image::open(thumb).ok())
+                .map(|img| look_of(&img.to_rgb8()));
+            self.index.settle(*id, look)?;
+        }
+        Ok(todo.len())
     }
 
     pub fn forget(&mut self, path: &Path) -> Result<bool> {
@@ -230,8 +248,19 @@ fn mtime(path: &Path) -> Result<i64> {
         .unwrap_or(0))
 }
 
+/// A thumbnail's difference hash, for telling near-identical shots apart,
+/// see `gyotaku_core::burst`.
+fn look_of(thumb: &RgbImage) -> u64 {
+    let grey = image::imageops::grayscale(thumb);
+    let small = image::imageops::resize(&grey, 9, 8, image::imageops::FilterType::Triangle);
+    let mut pixels = [0u8; 72];
+    pixels.copy_from_slice(small.as_raw());
+    gyotaku_core::burst::look(&pixels)
+}
+
 /// Cut to exactly what the grid tile shows, see `gyotaku_core::tile_crop`.
-fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<()> {
+/// Returns the thumbnail's look, made from it before it's compressed.
+fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<u64> {
     let (iw, ih) = (img.width(), img.height());
     let crop = gyotaku_core::tile_crop(iw, ih);
     let (cw, ch) = (crop.w * iw as f32, crop.h * ih as f32);
@@ -256,5 +285,5 @@ fn write_thumbnail(img: &RgbImage, dest: &Path) -> Result<()> {
     JpegEncoder::new_with_quality(&mut out, THUMB_QUALITY).encode_image(&thumb)?;
     drop(out);
     fs::rename(&tmp, dest)?;
-    Ok(())
+    Ok(look_of(&thumb))
 }

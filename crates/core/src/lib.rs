@@ -1,3 +1,4 @@
+pub mod burst;
 pub mod clipboard;
 mod config;
 mod index;
@@ -84,6 +85,9 @@ pub struct Shot {
     /// but search never returns them.
     pub width: u32,
     pub height: u32,
+    /// The thumbnail's difference hash, see `burst::look`. None when it
+    /// couldn't be made; the reader fills it in later from the thumbnail.
+    pub look: Option<u64>,
 }
 
 fn dirs() -> Result<directories::ProjectDirs> {
