@@ -14,7 +14,7 @@ use gpui::{
     WindowHandle, WindowKind, WindowOptions,
 };
 
-use super::{Service, Words};
+use super::{Service, TrayCommand, Words};
 use crate::app::Gyotaku;
 
 pub const WORDS: Words = Words {
@@ -110,6 +110,20 @@ pub fn take_focus(_: &mut Window) {}
 /// Nothing to register: the desktop's own shortcut runs `gyotaku-app`, and
 /// that knocks on the running copy.
 pub fn register_summon(_: UnboundedSender<()>, _: &BTreeMap<String, String>, _: &mut App) {}
+
+/// Nothing shows while it waits: there's no Dock or taskbar button to hide,
+/// and the desktop's shortcut is the way back in. A tray icon would need a
+/// StatusNotifier host most Wayland desktops don't run.
+pub fn settle_in(_: UnboundedSender<TrayCommand>, _: &BTreeMap<String, String>, _: &mut App) {}
+
+/// Nothing to do: the portal's folder picker comes up in front on its own.
+pub fn before_picker(_: &mut App) {}
+
+/// The window is an ordinary one or an overlay; the desktop's own close key
+/// already just closes it, leaving the resident process waiting.
+pub fn hide_keys() -> &'static [&'static str] {
+    &[]
+}
 
 // The clipboard. A Wayland clipboard is served by the app that set it, so
 // whatever gpui copies vanishes the moment this window closes. wl-copy forks

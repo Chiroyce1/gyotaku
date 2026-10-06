@@ -643,6 +643,7 @@ impl Gyotaku {
         if step_aside {
             window.remove_window();
         }
+        platform::before_picker(cx);
         cx.spawn(async move |this, cx| {
             let result = picked.await;
             let _ = this.update(cx, |this, cx| match result {

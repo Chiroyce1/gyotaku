@@ -18,8 +18,10 @@ use gpui::{
     App, Bounds, ClipboardItem, Entity, Global, Image, ImageFormat, Size, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
+use objc2::MainThreadMarker;
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
-use super::{Service, Words};
+use super::{Service, TrayCommand, Words};
 use crate::app::Gyotaku;
 
 pub const WORDS: Words = Words {
@@ -132,6 +134,45 @@ pub fn register_summon(knocks: UnboundedSender<()>, keys: &BTreeMap<String, Stri
     cx.set_global(Summon(manager));
 }
 
+/// Becomes an accessory app, the way Raycast and Spotlight-style launchers
+/// run: no Dock icon and no Cmd+Tab entry, so there's nothing to quit by
+/// accident and the summon key always finds it waiting. gpui makes every app
+/// a regular one as it finishes launching, which is before this runs, so
+/// this has the last word. A menu bar icon takes the Dock icon's place.
+pub fn settle_in(
+    commands: UnboundedSender<TrayCommand>,
+    keys: &BTreeMap<String, String>,
+    cx: &mut App,
+) {
+    if let Some(main) = MainThreadMarker::new() {
+        NSApplication::sharedApplication(main)
+            .setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    }
+    let Some(icon) = super::tray::icon(include_bytes!("../../../../assets/menubar.png")) else {
+        return;
+    };
+    let look = super::tray::Look {
+        icon: tray_icon::TrayIconBuilder::new().with_icon_templated(icon),
+        click_opens: false,
+    };
+    let key = keys.get("summon").map_or(SUMMON, String::as_str);
+    super::tray::show(look, key, commands, cx);
+}
+
+/// The window is a non-activating panel, so gyotaku is never the active app
+/// even while you type in it, and the folder picker, which macOS shows for
+/// the active app, would open behind whatever was in front. Activating first
+/// puts it on top with the keyboard.
+pub fn before_picker(cx: &mut App) {
+    cx.activate(true);
+}
+
+/// Cmd+W and Cmd+Q put the window away like Escape does. Quitting for good
+/// is in the menu bar icon's menu, where Raycast keeps it too.
+pub fn hide_keys() -> &'static [&'static str] {
+    &["cmd-w", "cmd-q"]
+}
+
 // The clipboard. The macOS pasteboard server keeps its own copy, so a copy
 // outlives the window without any help.
 
@@ -176,6 +217,10 @@ unsafe extern "C" {
 
 // Reading in the background: a launchd agent, started with the document
 // based plist format launchd has always read. Every mac boots launchd.
+//
+// The agent restarts gyotaku only if it exits with an error, so a crash
+// brings it back after 30 seconds while Quit from the menu bar icon stays
+// quit until the next login, or until it's opened again.
 
 const LABEL: &str = "io.github.xevrion.gyotaku.watch";
 
@@ -296,7 +341,7 @@ fn plist_file(exec: &str) -> String {
          \t<key>RunAtLoad</key><true/>\n\
          \t<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n\
          \t<key>ThrottleInterval</key><integer>30</integer>\n\
-                  \t<key>StandardOutPath</key><string>/dev/null</string>\n\
+         \t<key>StandardOutPath</key><string>/dev/null</string>\n\
          \t<key>StandardErrorPath</key><string>/dev/null</string>\n\
          </dict>\n\
          </plist>\n"

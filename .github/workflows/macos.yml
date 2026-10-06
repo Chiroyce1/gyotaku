@@ -179,6 +179,26 @@ jobs:
           sleep 2
           screencapture -x shots/5-summoned.png
 
+          # Like Raycast, it runs as an accessory app: no Dock icon, and a
+          # menu bar icon in its place.
+          first=$(pgrep -x gyotaku-app)
+          lsappinfo info -only ApplicationType "$first" | tee apptype.txt || true
+          grep -qi uielement apptype.txt || echo "::warning::not listed as an accessory (UIElement) app: $(cat apptype.txt)"
+          osascript -e 'tell application "System Events" to get description of every menu bar item of menu bar 2 of process "gyotaku-app"' || echo "::warning::couldn't read the menu bar icon"
+
+          # Cmd+Q puts the window away instead of quitting.
+          osascript -e 'tell application "System Events" to keystroke "q" using {command down}' || true
+          sleep 1.5
+          screencapture -x shots/6-cmd-q.png
+          pgrep -x gyotaku-app >/dev/null || { echo "::error::cmd+q quit the app"; cat /tmp/gyotaku.log; exit 1; }
+
+          # Opening it again hands over to the running copy, which shows the
+          # window.
+          ./dist/gyotaku/gyotaku-app >/dev/null 2>&1
+          sleep 2
+          screencapture -x shots/7-reopened.png
+          [ "$(pgrep -x gyotaku-app)" = "$first" ] || { echo "::error::a second launch didn't hand over to the running copy"; exit 1; }
+
           kill $(pgrep -x gyotaku-app) || true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

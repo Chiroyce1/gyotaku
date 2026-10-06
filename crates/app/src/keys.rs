@@ -198,6 +198,11 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
         KeyBinding::new("ctrl-v", Paste, Some("TextInput")),
         KeyBinding::new("ctrl-x", Cut, Some("TextInput")),
     ]);
+    // The system's own close keys, where it has any, put the window away
+    // from anywhere in it, the text field included.
+    for key in crate::platform::hide_keys() {
+        cx.bind_keys([KeyBinding::new(key, crate::HideWindow, None)]);
+    }
     let keys = resolve(overrides);
     let mut bound = HashMap::new();
     for (s, key) in SHORTCUTS.iter().zip(&keys) {

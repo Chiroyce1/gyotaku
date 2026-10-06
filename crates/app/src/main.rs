@@ -61,53 +61,69 @@ fn main() -> Result<()> {
     } else {
         QuitMode::LastWindowClosed
     };
-    application()
-        .with_quit_mode(quit_mode)
-        .run(move |cx: &mut App| {
-            cx.text_system()
-                .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
-                .expect("the bundled fonts load");
-            let config = gyotaku_core::Config::load_or_default();
-            keys::bind_all(cx, &config.keys);
-            cx.set_global(Launch {
-                windowed,
-                resident: listener.is_some(),
-            });
-            if !(background && listener.is_some()) {
-                toggle(cx);
-            }
-            platform::revive_reader();
-
-            // The view lives on for next time, but most of its thumbnails
-            // don't need to. Hand the freed pages back so an idle gyotaku
-            // stays small.
-            cx.on_window_closed(|cx, _| {
-                if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
-                    view.update(cx, |view, cx| view.hidden(cx));
-                }
-                platform::release_memory();
-            })
-            .detach();
-
-            // A second launch, or the summon key where the app registers one
-            // itself, knocks; each knock toggles the window.
-            let Some(listener) = listener else { return };
-            let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
-            platform::register_summon(knocks.clone(), &config.keys, cx);
-            std::thread::spawn(move || {
-                for stream in listener.incoming() {
-                    if stream.is_ok() && knocks.unbounded_send(()).is_err() {
-                        break;
-                    }
-                }
-            });
-            cx.spawn(async move |cx| {
-                while knocked.next().await.is_some() {
-                    cx.update(toggle);
-                }
-            })
-            .detach();
+    let app = application().with_quit_mode(quit_mode);
+    // Opening the app again (Spotlight, Finder) while it waits brings the
+    // window up, the same as the summon key.
+    app.on_reopen(summon);
+    app.run(move |cx: &mut App| {
+        cx.text_system()
+            .add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
+            .expect("the bundled fonts load");
+        let config = gyotaku_core::Config::load_or_default();
+        keys::bind_all(cx, &config.keys);
+        cx.on_action(|_: &HideWindow, cx| hide(cx));
+        cx.set_global(Launch {
+            windowed,
+            resident: listener.is_some(),
         });
+        // Settled in before the first window opens: becoming a menu bar
+        // app on macOS while the window is up would deactivate it, and
+        // the window puts itself away when it isn't active.
+        if listener.is_some() {
+            let (commands, mut picked) = futures::channel::mpsc::unbounded();
+            platform::settle_in(commands, &config.keys, cx);
+            cx.spawn(async move |cx| {
+                while let Some(command) = picked.next().await {
+                    cx.update(|cx| tray(command, cx));
+                }
+            })
+            .detach();
+        }
+        if !(background && listener.is_some()) {
+            toggle(cx);
+        }
+        platform::revive_reader();
+
+        // The view lives on for next time, but most of its thumbnails
+        // don't need to. Hand the freed pages back so an idle gyotaku
+        // stays small.
+        cx.on_window_closed(|cx, _| {
+            if let Some(view) = cx.try_global::<Kept>().map(|k| k.0.clone()) {
+                view.update(cx, |view, cx| view.hidden(cx));
+            }
+            platform::release_memory();
+        })
+        .detach();
+
+        // A second launch, or the summon key where the app registers one
+        // itself, knocks; each knock toggles the window.
+        let Some(listener) = listener else { return };
+        let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
+        platform::register_summon(knocks.clone(), &config.keys, cx);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if stream.is_ok() && knocks.unbounded_send(()).is_err() {
+                    break;
+                }
+            }
+        });
+        cx.spawn(async move |cx| {
+            while knocked.next().await.is_some() {
+                cx.update(toggle);
+            }
+        })
+        .detach();
+    });
     Ok(())
 }
 
@@ -133,6 +149,32 @@ fn toggle(cx: &mut App) {
         return;
     }
     summon(cx);
+}
+
+gpui::actions!(gyotaku_app, [HideWindow]);
+
+/// Puts the window away and keeps waiting, for the system's own close keys
+/// (Cmd+W and Cmd+Q on macOS), so they never end the process by accident.
+fn hide(cx: &mut App) {
+    for window in cx.windows() {
+        let _ = window.update(cx, |_, window, _| window.remove_window());
+    }
+}
+
+/// What the menu bar or notification area icon asked for.
+fn tray(command: platform::TrayCommand, cx: &mut App) {
+    match command {
+        platform::TrayCommand::Open => summon(cx),
+        platform::TrayCommand::Settings => {
+            summon(cx);
+            if let Some(window) = cx.windows().first().copied() {
+                let _ = window.update(cx, |_, window, cx| {
+                    window.dispatch_action(Box::new(app::OpenSettings), cx);
+                });
+            }
+        }
+        platform::TrayCommand::Quit => cx.quit(),
+    }
 }
 
 /// Opens the window if it isn't open: the system's launcher window where it

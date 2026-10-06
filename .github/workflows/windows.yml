@@ -149,6 +149,19 @@ jobs:
           Alive; Shot '4-hidden'
           [System.Windows.Forms.SendKeys]::SendWait('%+s')
           Alive; Shot '5-summoned'
+
+          # Like Raycast: Alt+F4 puts the window away and the process keeps
+          # waiting in the notification area.
+          $first = (Get-Process gyotaku-app).Id
+          [System.Windows.Forms.SendKeys]::SendWait('%{F4}')
+          Alive; Shot '6-alt-f4'
+          # Opening it again, the way the Start menu does, hands over to the
+          # running copy, which shows the window.
+          Start-Process .\dist\gyotaku\gyotaku-app.exe
+          Start-Sleep -Seconds 2
+          Alive; Shot '7-reopened'
+          $now = @((Get-Process gyotaku-app).Id)
+          if ($now.Count -ne 1 -or $now[0] -ne $first) { throw "a second launch didn't hand over to the running copy" }
           Get-Process gyotaku-app | Stop-Process -Force
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

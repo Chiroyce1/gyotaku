@@ -8,6 +8,7 @@
 //! | | Linux | Windows | macOS |
 //! |---|---|---|---|
 //! | the window | a layer-shell overlay on Wayland, an ordinary window elsewhere | a borderless popup above everything | a borderless popup above everything |
+//! | while it waits | nothing on screen, the desktop's shortcut is the way in | a notification area icon, no taskbar button | a menu bar icon, no Dock icon |
 //! | summoning it | the desktop's own shortcut runs `gyotaku-app` | a global hotkey the app registers | a global hotkey the app registers |
 //! | waking the running copy | a unix socket | a loopback port | a unix socket |
 //! | reading in the background | a systemd user service, or an XDG autostart entry | the app starts the reader, and the Run key starts the app at sign-in | a launchd agent, and the app starts the reader while it runs |
@@ -29,6 +30,11 @@ mod macos;
 #[cfg(target_os = "macos")]
 use macos as imp;
 
+// The menu bar and notification area icon, shared by the two systems that
+// have the app register its own hotkey and live in the background.
+#[cfg(any(windows, target_os = "macos"))]
+mod tray;
+
 #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 compile_error!(
     "gyotaku runs on Linux, Windows and macOS so far. A port means adding a file next to \
@@ -45,6 +51,15 @@ pub use imp::{listen, resident_address, wake};
 // The window, and the key that brings it up.
 pub use imp::{hides_when_inactive, open_launcher, register_summon, take_focus};
 
+// Living in the background like a launcher, the way Raycast does on macOS
+// and Windows: no Dock or taskbar button to quit by accident, an icon in the
+// menu bar or notification area with the way back in and the way out, and
+// the system's close keys putting the window away instead of quitting.
+pub use imp::{hide_keys, settle_in};
+
+// Getting the system's folder picker in front of everything.
+pub use imp::before_picker;
+
 // Copying out of the window.
 pub use imp::{copy_image, copy_text};
 
@@ -58,6 +73,15 @@ pub use imp::{
 
 // Where screenshot tools save, and the wording that differs.
 pub use imp::{WORDS, tool_folders};
+
+/// What the menu bar or notification area icon asks of the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub enum TrayCommand {
+    Open,
+    Settings,
+    Quit,
+}
 
 /// Whether new screenshots are picked up without anyone asking: on Linux,
 /// whether the watcher runs in the background; on Windows, whether gyotaku

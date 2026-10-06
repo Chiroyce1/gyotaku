@@ -22,7 +22,7 @@ use gpui::{
     WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
 
-use super::{Service, Words};
+use super::{Service, TrayCommand, Words};
 use crate::app::Gyotaku;
 
 pub const WORDS: Words = Words {
@@ -166,6 +166,35 @@ pub fn register_summon(knocks: UnboundedSender<()>, keys: &BTreeMap<String, Stri
         }
     }));
     cx.set_global(Summon(manager));
+}
+
+/// An icon in the notification area while it waits, the way Raycast and
+/// the other launchers on Windows sit: a click opens the window, a right
+/// click has Settings and Quit. The window itself is a tool window, so it
+/// never puts a button on the taskbar.
+pub fn settle_in(
+    commands: UnboundedSender<TrayCommand>,
+    keys: &BTreeMap<String, String>,
+    cx: &mut App,
+) {
+    let Some(icon) = super::tray::icon(include_bytes!("../../../../assets/tray.png")) else {
+        return;
+    };
+    let look = super::tray::Look {
+        icon: tray_icon::TrayIconBuilder::new().with_icon(icon),
+        click_opens: true,
+    };
+    let key = keys.get("summon").map_or(SUMMON, String::as_str);
+    super::tray::show(look, key, commands, cx);
+}
+
+/// Nothing to do: the folder dialog comes up in front on its own.
+pub fn before_picker(_: &mut App) {}
+
+/// Nothing extra: Alt+F4 closes the window, and the process carries on
+/// waiting for the next summon, since it only quits when asked to.
+pub fn hide_keys() -> &'static [&'static str] {
+    &[]
 }
 
 // The clipboard. Windows keeps its own copy of whatever is put there, so it
