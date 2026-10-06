@@ -260,6 +260,7 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [x] Group bursts of near-identical screenshots into one tile, with the rest a key away
 - [x] Search filters for the folder (`in:discord`) and the date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
 - [ ] An `app:` filter, which first needs a way to know which app a screenshot was taken in: the file itself doesn't say
+- [ ] A short title for every screenshot, generated from what it shows and says ("Order confirmation from Fern & Co"), shown on the tile and searchable, and optional auto-organizing into groups by those titles. Offline, like everything else
 - [x] Devanagari (Hindi, Marathi, Nepali), opt-in in settings, and vertical text
 - [ ] More scripts: Cyrillic, Hangul, Arabic, Thai and the rest
 - [ ] Handwriting: measure how well neat and messy handwritten notes read, and add an optional handwriting pass if it's worth it
