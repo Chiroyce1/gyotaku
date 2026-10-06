@@ -167,7 +167,9 @@ mod tests {
         std::fs::write(&path, "theme = \"light\"\n").unwrap();
         let config = Config::load_from(&path).unwrap().unwrap();
         assert_eq!(config.theme, ThemeChoice::Light);
-        assert_eq!(config.threads, 4);
+        // The default, which depends on the machine: GitHub's mac runners
+        // have three cores.
+        assert_eq!(config.threads, default_threads());
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
