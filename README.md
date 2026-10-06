@@ -8,6 +8,7 @@
 </p>
 
 <h4 align="center">
+  <a href="https://gyotaku.app">Website</a> |
   <a href="#installation">Installation</a> |
   <a href="docs/usage.md">Usage</a> |
   <a href="docs/troubleshooting.md">Troubleshooting</a> |
