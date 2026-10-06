@@ -69,6 +69,44 @@ jobs:
           sh install.sh --uninstall
           test ! -e "$HOME/.local/bin/gyotaku" && test ! -e "$HOME/.local/bin/gyotaku-app"
 
+  macos:
+    name: macos aarch64
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      GYOTAKU_NO_LAUNCH: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: check the release has a mac build
+        id: release
+        run: |
+          # Releases before 0.1.3 have no mac build.
+          if ! curl -sfIL -o /dev/null https://github.com/xevrion/gyotaku/releases/latest/download/gyotaku-aarch64-macos.tar.gz; then
+            echo "::warning::the latest release has no mac build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: install
+        if: steps.release.outputs.skip != 'true'
+        run: sh install.sh
+      - name: read a screenshot with what got installed
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          "$HOME/.local/bin/gyotaku" --version
+          "$HOME/.local/bin/gyotaku" ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
+      - name: update
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          mkdir -p "$HOME/Library/Application Support/gyotaku" && touch "$HOME/Library/Application Support/gyotaku/config.toml"
+          sh install.sh
+      - name: uninstall
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          sh install.sh --uninstall
+          test ! -e "$HOME/.local/bin/gyotaku" && test ! -e "$HOME/.local/bin/gyotaku-app"
+
   windows:
     name: windows
     runs-on: windows-2025

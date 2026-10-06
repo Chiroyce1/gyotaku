@@ -218,7 +218,9 @@ if [ "$os" = macos ]; then
     if [ -f "$plist" ]; then
         runs=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || true)
         if [ -n "$runs" ] && [ ! -x "$runs" ]; then
-            plutil -replace ProgramArguments -json "[\"$BIN_DIR/gyotaku\", \"watch\"]" "$plist"
+            # The agent starts the app hidden, which starts the reader, the
+            # same as the app's own "start at login" switch writes it.
+            plutil -replace ProgramArguments -json "[\"$BIN_DIR/gyotaku-app\", \"--background\"]" "$plist"
             launchctl kickstart -k "gui/$(id -u)/io.github.xevrion.gyotaku.watch" >/dev/null 2>&1 || true
             say "Pointed the background reader at the new install."
         fi
