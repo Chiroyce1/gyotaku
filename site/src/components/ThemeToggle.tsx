@@ -50,6 +50,13 @@ function applyTheme(theme: Theme) {
   requestAnimationFrame(() => pause.remove());
 }
 
+// How soft the wave's edge is: the new theme fades in over this band.
+const FEATHER = 80;
+
+// The new theme grows out of the button as a circle with a feathered edge,
+// so it reads as a soft wave sweeping the page rather than a hard cut-out.
+// The mask and its --reveal-* properties live in globals.css; this only
+// positions and drives them. (The same reveal as xevrion's site.)
 function setTheme(theme: Theme, x: number, y: number) {
   if (
     !document.startViewTransition ||
@@ -59,26 +66,36 @@ function setTheme(theme: Theme, x: number, y: number) {
     return;
   }
 
-  const radius = Math.hypot(
-    Math.max(x, innerWidth - x),
-    Math.max(y, innerHeight - y),
-  );
+  const root = document.documentElement;
+  // Past the farthest corner by the feather, so the soft band clears the
+  // screen and the last corner lands fully on the new theme.
+  const radius =
+    Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)) + FEATHER;
+  root.style.setProperty("--reveal-x", `${x}px`);
+  root.style.setProperty("--reveal-y", `${y}px`);
+  root.style.setProperty("--reveal-feather", `${FEATHER}px`);
+  // Scoped to this class so no other view transition inherits the mask.
+  root.classList.add("theme-reveal");
 
-  document.startViewTransition(() => applyTheme(theme)).ready.then(() => {
-    document.documentElement.animate(
-      {
-        clipPath: [
-          `circle(0px at ${x}px ${y}px)`,
-          `circle(${radius}px at ${x}px ${y}px)`,
-        ],
-      },
-      {
-        duration: 400,
-        easing: "cubic-bezier(0.23, 1, 0.32, 1)",
-        pseudoElement: "::view-transition-new(root)",
-      },
-    );
-  });
+  const t = document.startViewTransition(() => applyTheme(theme));
+  t.ready
+    .then(() =>
+      root.animate(
+        { "--reveal-r": ["0px", `${radius}px`] },
+        // The iOS drawer curve over 900ms: the wave visibly sweeps the page.
+        // A once-in-a-while action, so it can take its time. Held at the end,
+        // or the radius drops back to 0 on the last frame and flashes the
+        // old theme before the transition tears down.
+        {
+          duration: 900,
+          easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+          fill: "forwards",
+          pseudoElement: "::view-transition-new(root)",
+        },
+      ),
+    )
+    .catch(() => {});
+  t.finished.finally(() => root.classList.remove("theme-reveal"));
 }
 
 export function ThemeToggle() {

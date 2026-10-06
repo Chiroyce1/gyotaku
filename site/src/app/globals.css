@@ -236,6 +236,34 @@ p {
   transition-duration: 200ms, 200ms, 160ms;
 }
 
+/* Theme switches run as a view transition, with the reveal drawn below
+   instead of the browser's default crossfade. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* The theme switch's wave (ThemeToggle.tsx). A radial mask rather than a
+   clip-path circle, because a mask can fade: the new theme ramps in across
+   --reveal-feather instead of meeting the old one at a hard edge.
+   --reveal-r is registered so it can animate as a length. */
+@property --reveal-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+html.theme-reveal::view-transition-new(root) {
+  mask-image: radial-gradient(
+    circle at var(--reveal-x) var(--reveal-y),
+    #000 calc(var(--reveal-r) - var(--reveal-feather)),
+    transparent var(--reveal-r)
+  );
+}
+
 /* FAQ answers open to their natural height where the browser can animate
    to `auto`; elsewhere they simply appear. */
 @supports (interpolate-size: allow-keywords) {
