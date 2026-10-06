@@ -587,7 +587,13 @@ impl Gyotaku {
         let (index, query) = (&self.index, &self.query);
         self.matched
             .entry(hit.id)
-            .or_insert_with(|| Rc::new(index.matching_lines(hit.id, query).unwrap_or_default()))
+            .or_insert_with(|| {
+                Rc::new(
+                    index
+                        .matching_lines(hit.id, query, hit.near)
+                        .unwrap_or_default(),
+                )
+            })
             .clone()
     }
 
@@ -1370,7 +1376,8 @@ impl Gyotaku {
         let thumb = self.image(&path, Some(&original), window, cx);
         let lines = self.matched_lines(i);
         let hit = &self.hits[i];
-        let (id, crop) = (hit.id, gyotaku_core::tile_crop(hit.width, hit.height));
+        let (id, near) = (hit.id, hit.near);
+        let crop = gyotaku_core::tile_crop(hit.width, hit.height);
         let sink = self.tile_bounds.clone();
         let calm = self.calm(cx);
 
@@ -1462,6 +1469,29 @@ impl Gyotaku {
                 .border_1()
                 .border_color(theme.image_edge),
         );
+
+        // Found only with look-alike characters folded together, so the
+        // word in the picture isn't quite what was typed. Said plainly, so
+        // `E0425` turning up for `EO425` is never mistaken for an exact hit.
+        // 5 px in with a 5 px radius, concentric with the tile's 10.
+        if near && self.searching() {
+            inner = inner.child(
+                div()
+                    .absolute()
+                    .left(px(5.))
+                    .bottom(px(5.))
+                    .px(px(6.))
+                    .py(px(1.))
+                    .rounded(px(RADIUS - 5.))
+                    .bg(theme.panel)
+                    .border_1()
+                    .border_color(theme.hairline)
+                    .text_xs()
+                    .text_color(theme.muted)
+                    .whitespace_nowrap()
+                    .child("near match"),
+            );
+        }
 
         let mut tile = div()
             .id(("tile", i))

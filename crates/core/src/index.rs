@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -7,9 +8,11 @@ use rusqlite::{
 
 use crate::{Line, Rect, Shot};
 
-// Bump this whenever the tables change. There are no migrations yet, the
-// index is just a cache of OCR output, so an old one gets dropped and rebuilt.
-const SCHEMA: i32 = 1;
+// Bump this whenever the tables change. The index is a cache of OCR output,
+// so an unknown version gets dropped and rebuilt, but reading everything
+// again takes most of an hour on a big folder, so a version that can be
+// brought forward from the text already stored is, see `init`.
+const SCHEMA: i32 = 2;
 
 // The trigram tokenizer indexes every 3 character window, which is what makes
 // "nutsmp" find "donutsmp.net". The flip side is that it cannot match anything
@@ -33,6 +36,16 @@ const TABLES: &str = "
     CREATE VIRTUAL TABLE shots_fts USING fts5(text, tokenize = 'trigram');
 ";
 
+// The same text again, folded (see `fold`), for the near matches. Added in
+// version 2. The trigger is plain SQL so it also runs when an older reader
+// still has the index open and deletes a shot.
+const NEAR: &str = "
+    CREATE VIRTUAL TABLE shots_near USING fts5(text, tokenize = 'trigram');
+    CREATE TRIGGER shots_near_gone AFTER DELETE ON shots BEGIN
+        DELETE FROM shots_near WHERE rowid = old.id;
+    END;
+";
+
 pub struct Index {
     db: Connection,
 }
@@ -47,6 +60,9 @@ pub struct Hit {
     /// Only the lines that contain a query term, so the UI can draw a box
     /// around each one. Empty when browsing without a query.
     pub lines: Vec<Line>,
+    /// Found only once look-alike characters were treated as one, like `0`
+    /// for `O`. These always come after every exact match.
+    pub near: bool,
 }
 
 impl Index {
@@ -77,14 +93,35 @@ impl Index {
         let mut db = db;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if version != SCHEMA {
-            tx.execute_batch(
-                "DROP TABLE IF EXISTS shots_fts;
-                 DROP TABLE IF EXISTS lines;
-                 DROP TABLE IF EXISTS shots;",
-            )?;
-            tx.execute_batch(TABLES)?;
-            tx.pragma_update(None, "user_version", SCHEMA)?;
+        match version {
+            SCHEMA => {}
+            // Version 1 had everything but the folded text, which can be
+            // made from the text it already has.
+            1 => {
+                tx.execute_batch(NEAR)?;
+                {
+                    let mut all = tx.prepare("SELECT rowid, text FROM shots_fts")?;
+                    let mut add =
+                        tx.prepare("INSERT INTO shots_near (rowid, text) VALUES (?1, ?2)")?;
+                    let mut rows = all.query([])?;
+                    while let Some(r) = rows.next()? {
+                        let text: String = r.get(1)?;
+                        add.execute(params![r.get::<_, i64>(0)?, fold(&text)])?;
+                    }
+                }
+                tx.pragma_update(None, "user_version", SCHEMA)?;
+            }
+            _ => {
+                tx.execute_batch(
+                    "DROP TABLE IF EXISTS shots_near;
+                     DROP TABLE IF EXISTS shots_fts;
+                     DROP TABLE IF EXISTS lines;
+                     DROP TABLE IF EXISTS shots;",
+                )?;
+                tx.execute_batch(TABLES)?;
+                tx.execute_batch(NEAR)?;
+                tx.pragma_update(None, "user_version", SCHEMA)?;
+            }
         }
         tx.commit()?;
         Ok(Self { db })
@@ -161,6 +198,10 @@ impl Index {
             "INSERT INTO shots_fts (rowid, text) VALUES (?1, ?2)",
             params![id, text],
         )?;
+        tx.execute(
+            "INSERT INTO shots_near (rowid, text) VALUES (?1, ?2)",
+            params![id, fold(&text)],
+        )?;
 
         tx.commit()?;
         Ok(id)
@@ -232,7 +273,7 @@ impl Index {
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
         let mut hits = self.find(query, limit)?;
         for hit in &mut hits {
-            hit.lines = self.matching_lines(hit.id, query)?;
+            hit.lines = self.matching_lines(hit.id, query, hit.near)?;
         }
         Ok(hits)
     }
@@ -240,33 +281,82 @@ impl Index {
     /// Same as `search` but without the lines. Fetching those is most of the
     /// cost of a broad query (two letters can match 2000 shots), and a grid
     /// only ever shows a few dozen at a time, so the app asks per tile.
+    ///
+    /// Exact matches come first. If they don't fill `limit`, the near
+    /// matches follow: shots that only match once look-alike characters
+    /// are folded together, so `0RDER` and `0rcler` turn up for "order".
     pub fn find(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
         let terms: Vec<&str> = query.split_whitespace().collect();
         let (long, short): (Vec<&str>, Vec<&str>) =
             terms.iter().partition(|t| t.chars().count() >= 3);
 
-        let mut sql = String::from(
+        let mut hits = self.find_in(false, &long, &short, limit)?;
+        // Fewer than `limit` means that's every exact match there is, so
+        // anything new below is near. A query with no word long enough to
+        // be misread has no near matches.
+        let terms: Vec<Vec<char>> = long.iter().map(|t| lower(t)).collect();
+        if terms.iter().all(|t| swaps(t) == 0) || hits.len() >= limit {
+            return Ok(hits);
+        }
+        let exact: HashSet<i64> = hits.iter().map(|h| h.id).collect();
+        let folded: Vec<String> = long.iter().map(|t| fold(t)).collect();
+        let folded: Vec<&str> = folded.iter().map(String::as_str).collect();
+        let mut text = self
+            .db
+            .prepare_cached("SELECT text FROM shots_fts WHERE rowid = ?1")?;
+        // The fold only narrows it down. Folded, "internally" holds "email"
+        // (rn for m, l for i), so each one is checked against the text as it
+        // was read for how many letters had to be taken for others.
+        for hit in self.find_in(true, &folded, &short, limit)? {
+            if hits.len() >= limit {
+                break;
+            }
+            if exact.contains(&hit.id) {
+                continue;
+            }
+            let read: String = text.query_row([hit.id], |r| r.get(0))?;
+            let read = lower(&read);
+            if terms.iter().all(|t| reads_near(&read, t, swaps(t))) {
+                hits.push(Hit { near: true, ..hit });
+            }
+        }
+        Ok(hits)
+    }
+
+    fn find_in(&self, near: bool, long: &[&str], short: &[&str], limit: usize) -> Result<Vec<Hit>> {
+        let (table, alias) = if near {
+            ("shots_near", "n")
+        } else {
+            ("shots_fts", "f")
+        };
+        let mut sql = format!(
             "SELECT s.id, s.path, s.mtime, s.width, s.height
-             FROM shots_fts f JOIN shots s ON s.id = f.rowid WHERE s.width > 0",
+             FROM {table} {alias} JOIN shots s ON s.id = {alias}.rowid"
         );
+        // Short terms are matched against the text as it was read, even
+        // for near matches.
+        if near && !short.is_empty() {
+            sql.push_str(" JOIN shots_fts f ON f.rowid = s.id");
+        }
+        sql.push_str(" WHERE s.width > 0");
         let mut args: Vec<Value> = Vec::new();
 
         if !long.is_empty() {
-            sql.push_str(" AND shots_fts MATCH ?");
-            args.push(Value::Text(match_expr(&long)));
+            sql.push_str(&format!(" AND {table} MATCH ?"));
+            args.push(Value::Text(match_expr(long)));
         }
         // Terms under 3 characters are invisible to the trigram index, so they
         // fall back to LIKE. That is a scan, but only over rows the MATCH above
         // already narrowed down, or over everything for a query like "ip".
-        for t in &short {
+        for t in short {
             sql.push_str(" AND f.text LIKE ? ESCAPE '\\'");
             args.push(Value::Text(format!("%{}%", escape_like(t))));
         }
 
-        sql.push_str(if long.is_empty() {
-            " ORDER BY s.mtime DESC"
+        sql.push_str(&if long.is_empty() {
+            " ORDER BY s.mtime DESC".to_string()
         } else {
-            " ORDER BY f.rank, s.mtime DESC"
+            format!(" ORDER BY {alias}.rank, s.mtime DESC")
         });
         sql.push_str(" LIMIT ?");
         args.push(Value::Integer(limit as i64));
@@ -281,22 +371,27 @@ impl Index {
                     width: r.get(3)?,
                     height: r.get(4)?,
                     lines: Vec::new(),
+                    near: false,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(hits)
     }
 
-    /// The lines of one shot that contain any of the query's terms.
-    pub fn matching_lines(&self, shot_id: i64, query: &str) -> Result<Vec<Line>> {
-        let needles: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    /// The lines of one shot that contain any of the query's terms. For a
+    /// near match, also the lines where one was misread, which is where the
+    /// word sits even though it isn't spelled the way it was typed.
+    pub fn matching_lines(&self, shot_id: i64, query: &str, near: bool) -> Result<Vec<Line>> {
+        let needles: Vec<Vec<char>> = query.split_whitespace().map(lower).collect();
         if needles.is_empty() {
             return Ok(Vec::new());
         }
         let mut lines = self.lines(shot_id)?;
         lines.retain(|l| {
-            let text = l.text.to_lowercase();
-            needles.iter().any(|n| text.contains(n.as_str()))
+            let text = lower(&l.text);
+            needles
+                .iter()
+                .any(|n| reads_near(&text, n, if near { swaps(n) } else { 0 }))
         });
         Ok(lines)
     }
@@ -347,6 +442,92 @@ fn match_expr(terms: &[&str]) -> String {
         .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Text the way OCR might have misread it, with every group of look-alikes
+/// written the same way. Each character folds on its own, never in pairs,
+/// so the fold of a word starts with the fold of every prefix of it and
+/// search-as-you-type keeps finding the shot letter by letter. That's why
+/// `m` becomes `rn` and not the other way round.
+///
+/// Spaces stay. Folding them away would find words OCR split (`ord er`),
+/// but on a real index it mostly found words that were apart all along:
+/// "in voice" for invoice, "e mail" for email, "setting speeds" for settings.
+fn fold(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars().flat_map(char::to_lowercase) {
+        if let Some(group) = look_alike(c) {
+            out.push(TWINS[group][0]);
+            continue;
+        }
+        match c {
+            'm' => out.push_str("rn"),
+            'w' => out.push_str("vv"),
+            'd' => out.push_str("cl"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+// Letters OCR takes for one another. The first of each is what `fold`
+// writes for all of them.
+const TWINS: [&[char]; 4] = [
+    &['o', '0'],
+    &['l', '1', 'i', '|'],
+    &['s', '5', '$'],
+    &['b', '8'],
+];
+
+// And the letters it reads as two, or two as one.
+const PAIRS: [(char, [char; 2]); 3] = [('m', ['r', 'n']), ('w', ['v', 'v']), ('d', ['c', 'l'])];
+
+fn look_alike(c: char) -> Option<usize> {
+    TWINS.iter().position(|g| g.contains(&c))
+}
+
+/// How many misread letters a term may have and still be a near match.
+/// None under four letters, where one swap is a third of the word ("hub"
+/// found "shu849"), one up to seven, two from eight. Any more and ordinary
+/// words start matching each other.
+fn swaps(term: &[char]) -> usize {
+    match term.len() {
+        0..4 => 0,
+        4..8 => 1,
+        _ => 2,
+    }
+}
+
+fn lower(text: &str) -> Vec<char> {
+    text.chars().flat_map(char::to_lowercase).collect()
+}
+
+/// Whether `term` appears somewhere in `text` with at most `swaps` letters
+/// read as their look-alikes. Both already lowercase.
+fn reads_near(text: &[char], term: &[char], swaps: usize) -> bool {
+    (0..text.len()).any(|i| reads_as(&text[i..], term, swaps))
+}
+
+fn reads_as(text: &[char], term: &[char], swaps: usize) -> bool {
+    let Some(&want) = term.first() else {
+        return true;
+    };
+    let Some(&got) = text.first() else {
+        return false;
+    };
+    if got == want {
+        return reads_as(&text[1..], &term[1..], swaps);
+    }
+    if swaps == 0 {
+        return false;
+    }
+    if look_alike(got).is_some() && look_alike(got) == look_alike(want) {
+        return reads_as(&text[1..], &term[1..], swaps - 1);
+    }
+    PAIRS.iter().any(|&(one, two)| {
+        (want == one && text.starts_with(&two) && reads_as(&text[2..], &term[1..], swaps - 1))
+            || (got == one && term.starts_with(&two) && reads_as(&text[1..], &term[2..], swaps - 1))
+    })
 }
 
 fn escape_like(term: &str) -> String {
@@ -606,9 +787,241 @@ mod tests {
         let found = idx.find("subscribe later", 10).unwrap();
         assert_eq!(paths(&found), ["/shots/youtube.png"]);
         assert!(found[0].lines.is_empty());
-        let lines = idx.matching_lines(found[0].id, "subscribe later").unwrap();
+        let lines = idx
+            .matching_lines(found[0].id, "subscribe later", false)
+            .unwrap();
         assert_eq!(lines, idx.search("subscribe later", 10).unwrap()[0].lines);
-        assert!(idx.matching_lines(found[0].id, "  ").unwrap().is_empty());
+        assert!(
+            idx.matching_lines(found[0].id, "  ", false)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    fn misread() -> Index {
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.insert(
+            &shot("/shots/caps.png", 100),
+            &[line("YOUR 0RDER HAS SHIPPED", 0.2)],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/shots/serif.png", 200),
+            &[line("Thanks for your orcler", 0.3)],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/shots/discord.png", 250),
+            &[line("HOURS IN VOICE", 0.3)],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/shots/blog.png", 300),
+            &[line("a rnodern take on tea", 0.4)],
+        )
+        .unwrap();
+        idx.insert(&shot("/shots/clean.png", 50), &[line("Order #4021", 0.1)])
+            .unwrap();
+        idx.insert(
+            &shot("/shots/rust.png", 400),
+            &[line("error[E0425]: cannot find", 0.1)],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/shots/ocr.png", 500),
+            &[line("error[EO425]: cannot find", 0.1)],
+        )
+        .unwrap();
+        idx
+    }
+
+    fn near(hits: &[Hit]) -> Vec<(&str, bool)> {
+        hits.iter()
+            .map(|h| (h.path.to_str().unwrap(), h.near))
+            .collect()
+    }
+
+    #[test]
+    fn look_alikes_are_near_matches() {
+        let hits = misread().search("order", 10).unwrap();
+        assert_eq!(
+            near(&hits),
+            [
+                ("/shots/clean.png", false),
+                ("/shots/serif.png", true),
+                ("/shots/caps.png", true),
+            ]
+        );
+        // The lines lit are the ones as they were read.
+        assert_eq!(hits[1].lines, [line("Thanks for your orcler", 0.3)]);
+        assert_eq!(hits[2].lines, [line("YOUR 0RDER HAS SHIPPED", 0.2)]);
+    }
+
+    #[test]
+    fn words_apart_stay_apart() {
+        assert!(misread().search("invoice", 10).unwrap().is_empty());
+    }
+
+    // Lines from a real index, the near matches the first try found.
+    #[test]
+    fn one_misread_letter_is_near_but_two_are_another_word() {
+        let mut idx = Index::open_in_memory().unwrap();
+        let lines = [
+            "Elevated errors across many modeis",
+            "\"Flles changed",
+            "C0NF1GURATI0N",
+            "Starting point was that gradientmap supports 32 stops internally",
+            "Butterflies!!!",
+            "Money Forward Interview!!!!",
+            "CHLO NAALOO DE PARONTHE",
+        ];
+        for (i, text) in lines.iter().enumerate() {
+            idx.insert(
+                &shot(&format!("/shots/{i}.png"), i as i64),
+                &[line(text, 0.1)],
+            )
+            .unwrap();
+        }
+        let found = |q: &str| paths(&idx.search(q, 10).unwrap()).join(" ");
+        assert_eq!(found("model"), "/shots/0.png");
+        assert_eq!(found("file"), "/shots/1.png");
+        // Two swaps are fine from eight letters up.
+        assert_eq!(found("configuration"), "");
+        assert_eq!(found("configurati0n"), "/shots/2.png");
+        assert_eq!(found("email"), "");
+        assert_eq!(found("will"), "");
+        assert_eq!(found("100"), "");
+    }
+
+    #[test]
+    fn rn_reads_as_m_and_the_other_way_round() {
+        let idx = misread();
+        assert_eq!(
+            near(&idx.search("modern", 10).unwrap()),
+            [("/shots/blog.png", true)]
+        );
+        assert_eq!(
+            near(&idx.search("rnodern", 10).unwrap()),
+            [("/shots/blog.png", false)]
+        );
+    }
+
+    #[test]
+    fn near_matches_keep_up_while_typing() {
+        let idx = misread();
+        // Three letters are too few to guess a misreading from.
+        assert!(idx.find("mod", 10).unwrap().is_empty());
+        for typed in ["mode", "moder", "modern"] {
+            assert_eq!(
+                paths(&idx.find(typed, 10).unwrap()),
+                ["/shots/blog.png"],
+                "{typed}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_exact_code_stays_ahead_of_its_misreading() {
+        let hits = misread().search("E0425", 10).unwrap();
+        assert_eq!(
+            near(&hits),
+            [("/shots/rust.png", false), ("/shots/ocr.png", true)]
+        );
+        let hits = misread().search("EO425", 10).unwrap();
+        assert_eq!(
+            near(&hits),
+            [("/shots/ocr.png", false), ("/shots/rust.png", true)]
+        );
+    }
+
+    #[test]
+    fn exact_matches_that_fill_the_limit_leave_no_room_for_near() {
+        let idx = misread();
+        assert_eq!(
+            near(&idx.find("order", 1).unwrap()),
+            [("/shots/clean.png", false)]
+        );
+        assert_eq!(idx.find("order", 2).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn short_queries_have_no_near_matches() {
+        let idx = misread();
+        // "0r" only exists exactly in caps.png; folded it would also be in
+        // every "or".
+        assert_eq!(
+            near(&idx.search("0r", 10).unwrap()),
+            [("/shots/caps.png", false)]
+        );
+        // A short term next to a long one still has to be there as read.
+        assert_eq!(
+            near(&idx.search("order #4", 10).unwrap()),
+            [("/shots/clean.png", false)]
+        );
+        assert_eq!(
+            near(&idx.search("order er", 10).unwrap()),
+            [
+                ("/shots/clean.png", false),
+                ("/shots/serif.png", true),
+                ("/shots/caps.png", true),
+            ]
+        );
+    }
+
+    #[test]
+    fn removing_a_shot_removes_its_folded_text() {
+        let mut idx = misread();
+        idx.remove(Path::new("/shots/serif.png")).unwrap();
+        let left: i64 = idx
+            .db
+            .query_row("SELECT count(*) FROM shots_near", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 6);
+        assert!(!paths(&idx.find("order", 10).unwrap()).contains(&"/shots/serif.png"));
+    }
+
+    #[test]
+    fn a_version_1_index_is_brought_forward_not_rebuilt() {
+        let dir = std::env::temp_dir().join(format!("gyotaku-v1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("index.db");
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(TABLES).unwrap();
+            db.execute_batch(
+                "INSERT INTO shots (id, path, mtime, width, height)
+                     VALUES (7, '/shots/old.png', 1, 100, 100);
+                 INSERT INTO lines (shot_id, text, x, y, w, h, score)
+                     VALUES (7, 'YOUR 0RDER', 0.1, 0.1, 0.5, 0.03, 0.9);
+                 INSERT INTO shots_fts (rowid, text) VALUES (7, 'YOUR 0RDER');
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let idx = Index::open(&path).unwrap();
+        assert_eq!(idx.len().unwrap(), 1);
+        assert_eq!(
+            near(&idx.search("order", 10).unwrap()),
+            [("/shots/old.png", true)]
+        );
+        assert_eq!(
+            near(&idx.search("0rder", 10).unwrap()),
+            [("/shots/old.png", false)]
+        );
+        drop(idx);
+        // And opening it again leaves it be.
+        assert_eq!(Index::open(&path).unwrap().len().unwrap(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn fold_keeps_spaces_lines_and_prefixes() {
+        assert_eq!(fold("ord\ner"), "orcl\ner");
+        assert_eq!(fold("Wi-Fi 5G"), "vvl-fl sg");
+        let word = fold("modern");
+        for end in 1..="modern".len() {
+            assert!(word.starts_with(&fold(&"modern"[..end])));
+        }
     }
 
     #[test]

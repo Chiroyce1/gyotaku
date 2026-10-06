@@ -59,7 +59,11 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Search { query, limit } => {
             for hit in Index::open_default()?.search(&query.join(" "), limit)? {
-                println!("{}", hit.path.display());
+                if hit.near {
+                    println!("{} (near match)", hit.path.display());
+                } else {
+                    println!("{}", hit.path.display());
+                }
                 for line in &hit.lines {
                     println!("    {}", line.text);
                 }
