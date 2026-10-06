@@ -1,19 +1,21 @@
 //! Onboarding (the first time, when there's no config yet) and settings
 //! (ctrl comma, any time after). Both are lists of rows you move through with
-//! the arrows, where hovering moves the same highlight, the way a launcher
-//! works. Every change is saved as it's made, there's no apply button.
+//! the arrows, or click. Hovering only tints a row: the highlight that keys
+//! act on moves with the keys and with clicks, never with a resting mouse,
+//! so enter does what the screen says rather than whatever the pointer is
+//! over. Every change is saved as it's made, there's no apply button.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, ClickEvent, Context, CursorStyle, ElementId,
-    Focusable as _, FontWeight, KeyDownEvent, MouseMoveEvent, PathPromptOptions, ScrollHandle,
-    SharedString, Window, div, ease_out_quint, prelude::*, px,
+    Animation, AnimationExt as _, AnyElement, App, ClickEvent, Context, CursorStyle, ElementId,
+    Focusable as _, FontWeight, KeyDownEvent, PathPromptOptions, ScrollHandle, SharedString,
+    Window, div, ease_out_quint, prelude::*, px,
 };
 use gyotaku_core::{Config, Script, ThemeChoice, tidy};
 
-use super::{Gyotaku, Page, hint, thousands};
+use super::{Gyotaku, Page, button, hint, thousands};
 use crate::keys::{self, SHORTCUTS};
 use crate::platform::{self, Service};
 use crate::setup::{self, Candidate, Counts};
@@ -287,20 +289,21 @@ impl Gyotaku {
                     },
                 }
             }
+            // Each step has one way forward and enter always takes it, the
+            // way Raycast's onboarding works. Picking and adding folders
+            // have keys and clicks of their own, so nothing the cursor rests
+            // on can turn enter into something else.
             Page::Onboarding(o) => {
                 let last = o.row_count() - 1;
                 match (key, o.step) {
-                    (Key::Up, _) => o.cursor = o.cursor.saturating_sub(1),
-                    (Key::Down, _) => o.cursor = (o.cursor + 1).min(last),
+                    (Key::Up, Step::Folders) => o.cursor = o.cursor.saturating_sub(1),
+                    (Key::Down, Step::Folders) => o.cursor = (o.cursor + 1).min(last),
                     (Key::Space, Step::Folders) => {
                         if let Some(pick) = o.picks.get_mut(o.cursor) {
                             pick.on = !pick.on;
                         } else {
                             self.add_folders(window, cx);
                         }
-                    }
-                    (Key::Enter, Step::Folders) if o.cursor == o.picks.len() => {
-                        self.add_folders(window, cx)
                     }
                     (Key::Enter, Step::Folders) => {
                         if o.picks.iter().any(|p| p.on) {
@@ -310,14 +313,21 @@ impl Gyotaku {
                             self.flash("pick at least one folder", cx);
                         }
                     }
+                    // Two answers, one of them always chosen: the arrows
+                    // choose, like any radio group.
+                    (Key::Up, Step::Background) => {
+                        o.background = true;
+                        o.cursor = 0;
+                    }
+                    (Key::Down, Step::Background) => {
+                        o.background = false;
+                        o.cursor = 1;
+                    }
                     (Key::Space | Key::Left | Key::Right, Step::Background) => {
                         o.background = !o.background;
                         o.cursor = if o.background { 0 } else { 1 };
                     }
-                    (Key::Enter, Step::Background) => {
-                        o.background = o.cursor == 0;
-                        self.finish_onboarding(window, cx);
-                    }
+                    (Key::Enter, Step::Background) => self.finish_onboarding(window, cx),
                     _ => {}
                 }
             }
@@ -622,7 +632,7 @@ impl Gyotaku {
     /// Opens the desktop's folder picker. The overlay sits above every
     /// window, the picker included, so it gets out of the way while you pick
     /// and comes back after, right where it was.
-    fn add_folders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn add_folders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let picked = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -696,10 +706,17 @@ impl Gyotaku {
         cx.notify();
     }
 
+    /// Moves the highlight keys act on. Only keys and clicks call this; on
+    /// the background question the highlight is the answer, so it chooses.
     fn set_cursor(&mut self, at: usize, cx: &mut Context<Self>) {
         let cursor = match &mut self.page {
             Page::Settings(s) => &mut s.cursor,
-            Page::Onboarding(o) => &mut o.cursor,
+            Page::Onboarding(o) => {
+                if o.step == Step::Background {
+                    o.background = at == 0;
+                }
+                &mut o.cursor
+            }
             Page::Search => return,
         };
         if *cursor != at {
@@ -708,18 +725,21 @@ impl Gyotaku {
         }
     }
 
-    /// One selectable line. Hovering selects it, clicking selects it and
-    /// does the same thing space would.
+    /// One selectable line. Hovering tints it, clicking moves the highlight
+    /// here and then does what `key` would, if anything. Rows where a click
+    /// could cost something (clearing the thumbnails) pass no key and keep
+    /// their action on a button of its own.
     fn row(
         &self,
         ix: usize,
         selected: bool,
         theme: Theme,
         cx: &mut Context<Self>,
-        key: Key,
+        key: Option<Key>,
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id(("row", ix))
+            .group(row_group(ix))
             .min_h(px(52.))
             .py_2()
             .px(px(14.))
@@ -728,14 +748,27 @@ impl Gyotaku {
             .gap_3()
             .rounded(px(10.))
             .when(selected, |r| r.bg(theme.hover_wash))
+            // Half the highlight, so the row under the mouse never reads as
+            // the one enter would act on.
+            .when(!selected, |r| {
+                r.hover(move |s| s.bg(theme.hover_wash.opacity(0.5)))
+            })
             .cursor(CursorStyle::PointingHand)
-            .on_mouse_move(
-                cx.listener(move |this, _: &MouseMoveEvent, _, cx| this.set_cursor(ix, cx)),
-            )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.set_cursor(ix, cx);
-                this.panel_key(key, window, cx);
+                match key {
+                    Some(key) => this.panel_key(key, window, cx),
+                    None => this.stop_recording(cx),
+                }
             }))
+    }
+
+    fn pick_theme(&mut self, choice: ThemeChoice, window: &mut Window, cx: &mut Context<Self>) {
+        let mut config = self.current_config();
+        if config.theme != choice {
+            config.theme = choice;
+            self.set_theme(config, window, cx);
+        }
     }
 
     pub(super) fn render_settings(
@@ -779,7 +812,7 @@ impl Gyotaku {
             let el = match *row {
                 Row::Folder(i) => {
                     let n = shots.get(i).copied().unwrap_or(0);
-                    self.row(ix, selected, theme, cx, Key::Space)
+                    self.row(ix, selected, theme, cx, None)
                         .child(
                             div()
                                 .flex_1()
@@ -791,43 +824,40 @@ impl Gyotaku {
                         } else {
                             format!("{} shots", thousands(n))
                         }))
-                        .child(
-                            div()
-                                .id(("remove", i))
-                                .opacity(if selected { 1.0 } else { 0.0 })
+                        .child(on_row_hover(
+                            ix,
+                            selected,
+                            button(
+                                ("remove", i),
+                                "del",
+                                "remove",
+                                theme,
                                 // The row around it has a click of its own,
                                 // which would then act on whatever row took
                                 // this one's place.
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     cx.stop_propagation();
                                     this.remove_folder(i, cx)
-                                }))
-                                .child(hint("del", "remove", theme)),
-                        )
+                                }),
+                            ),
+                        ))
                         .into_any_element()
                 }
                 Row::AddFolder => self
-                    .row(ix, selected, theme, cx, Key::Enter)
+                    .row(ix, selected, theme, cx, Some(Key::Enter))
                     .child(
                         div()
                             .flex_1()
                             .text_color(theme.muted)
                             .child("add a folder\u{2026}"),
                     )
+                    .child(on_row_hover(ix, selected, hint("ctrl o", "add", theme)))
                     .into_any_element(),
                 Row::Theme => {
                     list.push(section("look"));
-                    self.row(ix, selected, theme, cx, Key::Right)
+                    self.row(ix, selected, theme, cx, Some(Key::Right))
                         .child(div().flex_1().child("theme"))
-                        .child(segmented(
-                            &["system", "light", "dark"],
-                            match config.theme {
-                                ThemeChoice::System => 0,
-                                ThemeChoice::Light => 1,
-                                ThemeChoice::Dark => 2,
-                            },
-                            theme,
-                        ))
+                        .child(segmented(config.theme, theme, cx))
                         .into_any_element()
                 }
                 Row::Similar => {
@@ -836,7 +866,7 @@ impl Gyotaku {
                         keys::shown("similar", cx)
                     )
                     .into();
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    self.row(ix, selected, theme, cx, Some(Key::Enter))
                         .child(
                             div()
                                 .flex_1()
@@ -852,7 +882,7 @@ impl Gyotaku {
                     list.push(section("reading"));
                     let on = service == Service::Running;
                     let status = platform::background_status(service, self.searchable);
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    self.row(ix, selected, theme, cx, Some(Key::Enter))
                         .child(
                             div()
                                 .flex_1()
@@ -871,7 +901,7 @@ impl Gyotaku {
                             "keeps images you copy but never save, so they're searchable too".into()
                         }
                     };
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    self.row(ix, selected, theme, cx, Some(Key::Enter))
                         .child(
                             div()
                                 .flex_1()
@@ -887,7 +917,7 @@ impl Gyotaku {
                     let script = Script::ALL[i];
                     let on = config.scripts().contains(&script);
                     let (name, detail) = script_words(script, on);
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    self.row(ix, selected, theme, cx, Some(Key::Enter))
                         .child(
                             div()
                                 .flex_1()
@@ -900,7 +930,7 @@ impl Gyotaku {
                         .into_any_element()
                 }
                 Row::Threads => {
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    self.row(ix, selected, theme, cx, None)
                         .child(
                             div()
                                 .flex_1()
@@ -911,7 +941,7 @@ impl Gyotaku {
                                     "more reads each one faster, fewer leaves more for you",
                                 )),
                         )
-                        .child(stepper(config.threads, theme))
+                        .child(stepper(config.threads, theme, cx))
                         .into_any_element()
                 }
                 Row::ClearThumbs => {
@@ -922,7 +952,9 @@ impl Gyotaku {
                         }
                         None => "measuring\u{2026}".into(),
                     };
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    // A click on the row only highlights it: clearing takes
+                    // the button, or enter once the highlight is here.
+                    self.row(ix, selected, theme, cx, None)
                         .child(
                             div()
                                 .flex_1()
@@ -931,7 +963,17 @@ impl Gyotaku {
                                 .child("clear thumbnails")
                                 .child(div().text_xs().text_color(theme.muted).child(text)),
                         )
-                        .child(hint("enter", "clear", theme))
+                        .child(button(
+                            "clear-thumbs",
+                            "enter",
+                            "clear",
+                            theme,
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.set_cursor(ix, cx);
+                                this.clear_thumbnails(cx);
+                            }),
+                        ))
                         .into_any_element()
                 }
                 Row::Shortcut(k) => {
@@ -942,7 +984,44 @@ impl Gyotaku {
                     let bound = keys::current(k, &config.keys);
                     let changed = bound != shortcut.default;
                     let listening = recording == Some(k);
-                    self.row(ix, selected, theme, cx, Key::Enter)
+                    let reset = changed.then(|| {
+                        button(
+                            ("reset", k),
+                            "del",
+                            "reset",
+                            theme,
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.stop_recording(cx);
+                                this.reset_shortcut(k, cx);
+                            }),
+                        )
+                    });
+                    // While it listens, the way out and the way back to the
+                    // default are buttons as well as keys. Otherwise reset
+                    // shows on the highlighted or hovered row only.
+                    let actions = if listening {
+                        Some(
+                            div()
+                                .flex()
+                                .gap_1()
+                                .child(button(
+                                    ("cancel-keys", k),
+                                    "esc",
+                                    "cancel",
+                                    theme,
+                                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        this.stop_recording(cx);
+                                    }),
+                                ))
+                                .children(reset)
+                                .into_any_element(),
+                        )
+                    } else {
+                        reset.map(|r| on_row_hover(ix, selected, r).into_any_element())
+                    };
+                    self.row(ix, selected, theme, cx, Some(Key::Enter))
                         .child(div().flex_1().flex().flex_col().child(shortcut.label).when(
                             changed,
                             |d| {
@@ -952,9 +1031,7 @@ impl Gyotaku {
                                 )))
                             },
                         ))
-                        .when(selected && changed && !listening, |r| {
-                            r.child(hint("del", "reset", theme))
-                        })
+                        .children(actions)
                         .child(keycap(k, &bound, listening, theme))
                         .into_any_element()
                 }
@@ -996,9 +1073,16 @@ impl Gyotaku {
         let footer = if recording.is_some() {
             div()
                 .flex()
+                .items_center()
                 .gap_5()
                 .child(div().child("press the new keys"))
-                .child(hint("esc", "cancel", theme))
+                .child(button(
+                    "footer-cancel",
+                    "esc",
+                    "cancel",
+                    theme,
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.stop_recording(cx)),
+                ))
         } else {
             div()
                 .flex()
@@ -1024,7 +1108,15 @@ impl Gyotaku {
                     .border_b_1()
                     .border_color(theme.hairline)
                     .child(div().text_size(px(21.)).child("settings"))
-                    .child(hint("esc", "back", theme)),
+                    .child(button(
+                        "settings-back",
+                        "esc",
+                        "back",
+                        theme,
+                        cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.leave_panel(window, cx)
+                        }),
+                    )),
             )
             .child(
                 div()
@@ -1099,7 +1191,7 @@ impl Gyotaku {
                             Some(1) => "1 image".into(),
                             Some(n) => format!("{} images", thousands(n)),
                         };
-                        self.row(ix, ix == cursor, theme, cx, Key::Space)
+                        self.row(ix, ix == cursor, theme, cx, Some(Key::Space))
                             .child(switch(("pick", ix), on, theme))
                             .child(
                                 div()
@@ -1114,7 +1206,7 @@ impl Gyotaku {
                     })
                     .collect();
                 rows.push(
-                    self.row(add_ix, cursor == add_ix, theme, cx, Key::Enter)
+                    self.row(add_ix, cursor == add_ix, theme, cx, Some(Key::Space))
                         .child(div().w(px(30.)))
                         .child(
                             div()
@@ -1122,6 +1214,7 @@ impl Gyotaku {
                                 .text_color(theme.muted)
                                 .child("add another folder\u{2026}"),
                         )
+                        .child(hint("ctrl o", "add", theme))
                         .into_any_element(),
                 );
                 (
@@ -1138,7 +1231,7 @@ impl Gyotaku {
                         .iter()
                         .enumerate()
                         .map(|(ix, (label, detail))| {
-                            self.row(ix, ix == cursor, theme, cx, Key::Enter)
+                            self.row(ix, ix == cursor, theme, cx, None)
                                 .child(radio(ix == cursor, theme))
                                 .child(
                                     div().flex_1().flex().flex_col().child(*label).child(
@@ -1152,17 +1245,53 @@ impl Gyotaku {
             }
         };
 
+        // Secondary actions on the left as quiet buttons, the one way
+        // forward on the right in ink. Enter is that button and nothing else.
         let footer = match step {
             Step::Folders => div()
                 .flex()
-                .gap_5()
+                .items_center()
+                .gap_2()
                 .child(hint("space", "pick", theme))
-                .child(hint("enter", "continue", theme)),
+                .child(div().w(px(12.)))
+                .child(button(
+                    "onboarding-add",
+                    "ctrl o",
+                    "add a folder",
+                    theme,
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.add_folders(window, cx)),
+                ))
+                .child(div().w(px(8.)))
+                .child(primary(
+                    "onboarding-continue",
+                    "continue",
+                    "\u{21b5}",
+                    theme,
+                    cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.panel_key(Key::Enter, window, cx)
+                    }),
+                )),
             Step::Background => div()
                 .flex()
-                .gap_5()
-                .child(hint("esc", "back", theme))
-                .child(hint("enter", "done", theme)),
+                .items_center()
+                .gap_2()
+                .child(button(
+                    "onboarding-back",
+                    "esc",
+                    "back",
+                    theme,
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.panel_back(window, cx)),
+                ))
+                .child(div().w(px(8.)))
+                .child(primary(
+                    "onboarding-finish",
+                    "done",
+                    "\u{21b5}",
+                    theme,
+                    cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.panel_key(Key::Enter, window, cx)
+                    }),
+                )),
         };
 
         div()
@@ -1232,6 +1361,60 @@ fn script_words(script: Script, on: bool) -> (&'static str, &'static str) {
             "on for new screenshots, ones read before stay as they were",
         ),
     }
+}
+
+/// The hover group of one row, so a control in it can show while the row
+/// is hovered as well as while it's highlighted.
+fn row_group(ix: usize) -> SharedString {
+    format!("row-{ix}").into()
+}
+
+/// A control that belongs to one row and only shows on that row: while
+/// it's highlighted, or the mouse is over it.
+fn on_row_hover(ix: usize, selected: bool, child: impl IntoElement) -> impl IntoElement {
+    div()
+        .opacity(if selected { 1.0 } else { 0.0 })
+        .group_hover(row_group(ix), |s| s.opacity(1.0))
+        .child(child)
+}
+
+/// The one way forward on an onboarding step: ink, with the key that does
+/// the same, the way Raycast labels its primary action.
+fn primary(
+    id: &'static str,
+    label: &'static str,
+    keys: &'static str,
+    theme: Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap_2()
+        .h(px(32.))
+        .pl_3()
+        .pr(px(6.))
+        .rounded(px(8.))
+        .bg(theme.text)
+        .text_color(theme.panel)
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .cursor(CursorStyle::PointingHand)
+        .hover(|s| s.opacity(0.9))
+        .active(|s| s.opacity(0.75))
+        .on_click(on_click)
+        .child(label)
+        .child(
+            div()
+                .px(px(6.))
+                .rounded(px(5.))
+                .border_1()
+                .border_color(theme.panel)
+                .text_xs()
+                .opacity(0.7)
+                .child(keys),
+        )
 }
 
 fn mb(bytes: u64) -> String {
@@ -1335,31 +1518,70 @@ fn radio(on: bool, theme: Theme) -> impl IntoElement {
         })
 }
 
-fn segmented(options: &[&'static str], selected: usize, theme: Theme) -> impl IntoElement {
+/// The three themes, each one clickable. A click picks that theme straight
+/// away rather than stepping to the next, and stops at the option so the
+/// row's own click (which steps) doesn't follow it.
+fn segmented(selected: ThemeChoice, theme: Theme, cx: &mut Context<Gyotaku>) -> impl IntoElement {
+    let options = [
+        ("system", ThemeChoice::System),
+        ("light", ThemeChoice::Light),
+        ("dark", ThemeChoice::Dark),
+    ];
     // The pill sits 3 px inside the track, so its radius is the track's minus 3.
     div()
         .flex()
         .p(px(3.))
         .rounded(px(9.))
         .bg(theme.keycap)
-        .children(options.iter().enumerate().map(|(i, label)| {
+        .children(options.into_iter().map(|(label, choice)| {
+            let on = choice == selected;
             div()
+                .id(label)
                 .px_3()
                 .py(px(3.))
                 .rounded(px(6.))
                 .text_sm()
-                .when(i == selected, |s| s.bg(theme.text).text_color(theme.panel))
-                .when(i != selected, |s| s.text_color(theme.muted))
-                .child(*label)
+                .cursor(CursorStyle::PointingHand)
+                .when(on, |s| s.bg(theme.text).text_color(theme.panel))
+                .when(!on, |s| {
+                    s.text_color(theme.muted)
+                        .hover(move |s| s.text_color(theme.text))
+                })
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.pick_theme(choice, window, cx);
+                }))
+                .child(label)
         }))
 }
 
-fn stepper(value: usize, theme: Theme) -> impl IntoElement {
+/// Fewer and more cores, as two buttons around the number. Clicking the row
+/// itself only highlights it, so a stray click never changes the count.
+fn stepper(value: usize, theme: Theme, cx: &mut Context<Gyotaku>) -> impl IntoElement {
+    fn step(
+        id: &'static str,
+        keys: &'static str,
+        by: isize,
+        theme: Theme,
+        cx: &mut Context<Gyotaku>,
+    ) -> AnyElement {
+        button(
+            id,
+            keys,
+            "",
+            theme,
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.change_threads(by, cx);
+            }),
+        )
+        .into_any_element()
+    }
     div()
         .flex()
         .items_center()
-        .gap_2()
-        .child(hint("\u{2190}", "", theme))
+        .gap_1()
+        .child(step("threads-less", "\u{2190}", -1, theme, cx))
         .child(
             div()
                 .w(px(20.))
@@ -1367,5 +1589,5 @@ fn stepper(value: usize, theme: Theme) -> impl IntoElement {
                 .justify_center()
                 .child(value.to_string()),
         )
-        .child(hint("\u{2192}", "", theme))
+        .child(step("threads-more", "\u{2192}", 1, theme, cx))
 }

@@ -54,7 +54,8 @@ actions!(
         MarkAll,
         Trash,
         Undo,
-        Similar
+        Similar,
+        AddFolder
     ]
 );
 
@@ -1179,6 +1180,14 @@ impl Gyotaku {
         self.panel_key(Key::Remove, window, cx);
     }
 
+    /// Its own key in onboarding and settings, so enter is always free to
+    /// mean "continue" there, wherever the mouse happens to rest.
+    fn add_folder(&mut self, _: &AddFolder, window: &mut Window, cx: &mut Context<Self>) {
+        if self.on_panel() {
+            self.add_folders(window, cx);
+        }
+    }
+
     fn open_settings_action(
         &mut self,
         _: &OpenSettings,
@@ -1656,6 +1665,7 @@ impl Gyotaku {
                     .text_color(theme.muted)
                     .whitespace_nowrap()
                     .cursor(CursorStyle::PointingHand)
+                    .hover(move |s| s.text_color(theme.text))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         this.unfold(i, cx);
@@ -1666,6 +1676,7 @@ impl Gyotaku {
 
         let mut tile = div()
             .id(("tile", i))
+            .group(SharedString::from(format!("tile-{i}")))
             .relative()
             .flex_none()
             .w(px(w))
@@ -1707,6 +1718,22 @@ impl Gyotaku {
                     .rounded(px(RADIUS + 3.))
                     .border_2()
                     .border_color(theme.text),
+            );
+        } else if presence == 1.0 {
+            // The same ring, faint, on the tile under the mouse: it says what
+            // a click would open without taking the selection from the keys.
+            tile = tile.child(
+                div()
+                    .absolute()
+                    .top(px(-3.))
+                    .left(px(-3.))
+                    .w(px(w + 6.))
+                    .h(px(h + 6.))
+                    .rounded(px(RADIUS + 3.))
+                    .border_2()
+                    .border_color(theme.faint)
+                    .opacity(0.)
+                    .group_hover(format!("tile-{i}"), |s| s.opacity(1.)),
             );
         }
 
@@ -1892,15 +1919,13 @@ impl Gyotaku {
             )
             .children(reading)
             .child(div().text_sm().text_color(theme.muted).child(count))
-            .child(
-                div()
-                    .id("settings-hint")
-                    .cursor(CursorStyle::PointingHand)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.open_settings(window, cx)
-                    }))
-                    .child(hint(keys::shown("settings", cx), "settings", theme)),
-            )
+            .child(button(
+                "settings-hint",
+                keys::shown("settings", cx),
+                "settings",
+                theme,
+                cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(window, cx)),
+            ))
             .into_any_element()
     }
 
@@ -2170,14 +2195,65 @@ impl Gyotaku {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .gap_5()
+                        .gap_1()
                         .opacity(chrome)
-                        .child(hint("esc", "back", theme))
-                        .child(hint(keys::shown("copy_text", cx), "copy text", theme))
-                        .child(hint(keys::shown("copy_image", cx), "copy image", theme))
-                        .child(hint("enter", "open", theme))
-                        .child(hint(keys::shown("trash", cx), "trash", theme))
-                        .child(hint("\u{2190} \u{2192}", "next", theme)),
+                        // Pressing a button here mustn't also start a line
+                        // selection on the shot behind, which would forget
+                        // the lines just picked before "copy text" sees them.
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(button(
+                            "detail-back",
+                            "esc",
+                            "back",
+                            theme,
+                            cx.listener(|this, _, window, cx| this.back(&Back, window, cx)),
+                        ))
+                        .child(button(
+                            "detail-copy-text",
+                            keys::shown("copy_text", cx),
+                            "copy text",
+                            theme,
+                            cx.listener(|this, _, window, cx| {
+                                this.copy_text(&CopyText, window, cx)
+                            }),
+                        ))
+                        .child(button(
+                            "detail-copy-image",
+                            keys::shown("copy_image", cx),
+                            "copy image",
+                            theme,
+                            cx.listener(|this, _, window, cx| {
+                                this.copy_image(&CopyImage, window, cx)
+                            }),
+                        ))
+                        .child(button(
+                            "detail-open",
+                            "enter",
+                            "open",
+                            theme,
+                            cx.listener(|this, _, window, cx| this.open(&Open, window, cx)),
+                        ))
+                        .child(button(
+                            "detail-trash",
+                            keys::shown("trash", cx),
+                            "trash",
+                            theme,
+                            cx.listener(|this, _, window, cx| this.trash(&Trash, window, cx)),
+                        ))
+                        .child(button(
+                            "detail-previous",
+                            "\u{2190}",
+                            "previous",
+                            theme,
+                            cx.listener(|this, _, window, cx| this.left(&Left, window, cx)),
+                        ))
+                        .child(button(
+                            "detail-next",
+                            "\u{2192}",
+                            "next",
+                            theme,
+                            cx.listener(|this, _, window, cx| this.right(&Right, window, cx)),
+                        )),
                 )
                 .into_any_element(),
         )
@@ -2362,7 +2438,11 @@ impl Gyotaku {
         )
     }
 
-    fn render_toast(&self, theme: Theme) -> Option<impl IntoElement + use<>> {
+    fn render_toast(
+        &self,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
         let toast = self.toast.as_ref()?;
         let (id, leaving) = (toast.id, toast.leaving);
         // The fade out has its own id so it starts fresh instead of carrying
@@ -2391,12 +2471,24 @@ impl Gyotaku {
                         .gap_3()
                         .child(toast.message.clone())
                         .children(toast.keys.clone().map(|(keys, what)| {
+                            // The only key a toast offers is undo, so it's
+                            // also the one thing the toast can be clicked for.
                             div()
+                                .id("toast-action")
                                 .flex()
                                 .items_center()
                                 .gap_1p5()
                                 .text_xs()
                                 .opacity(0.7)
+                                .when(what == "undo", |d| {
+                                    d.cursor(CursorStyle::PointingHand)
+                                        .hover(|s| s.opacity(1.0))
+                                        .on_click(cx.listener(
+                                            |this, _: &ClickEvent, window, cx| {
+                                                this.undo(&Undo, window, cx)
+                                            },
+                                        ))
+                                })
                                 .child(
                                     div()
                                         .px(px(6.))
@@ -2454,7 +2546,7 @@ impl Render for Gyotaku {
             self.relayout(width);
         }
 
-        let toast = self.render_toast(theme);
+        let toast = self.render_toast(theme, cx);
         let mut content: Vec<AnyElement> = match self.page {
             Page::Settings(_) => vec![self.render_settings(theme, window, cx)],
             Page::Onboarding(_) => vec![self.render_onboarding(theme, cx)],
@@ -2483,6 +2575,7 @@ impl Render for Gyotaku {
                 .track_focus(&self.panel_focus)
                 .on_action(cx.listener(Self::toggle))
                 .on_action(cx.listener(Self::remove))
+                .on_action(cx.listener(Self::add_folder))
                 .on_key_down(cx.listener(Self::panel_key_down))
                 .flex_1()
                 // Without this a flex item is at least as tall as what's in
@@ -2563,7 +2656,7 @@ fn check(color: Hsla) -> impl IntoElement {
 
 /// A key hint that can also be clicked, for whoever reached for the mouse.
 fn button(
-    id: &'static str,
+    id: impl Into<ElementId>,
     keys: impl Into<SharedString>,
     what: &'static str,
     theme: Theme,

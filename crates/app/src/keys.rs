@@ -188,6 +188,7 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
         KeyBinding::new("space", Toggle, Some("Panel")),
         KeyBinding::new("delete", Remove, Some("Panel")),
         KeyBinding::new("backspace", Remove, Some("Panel")),
+        KeyBinding::new("ctrl-o", AddFolder, Some("Panel")),
         KeyBinding::new("backspace", Backspace, Some("TextInput")),
         KeyBinding::new("ctrl-backspace", DeleteWord, Some("TextInput")),
         KeyBinding::new("delete", Delete, Some("TextInput")),
