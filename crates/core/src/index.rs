@@ -1229,6 +1229,8 @@ mod tests {
         assert!(idx.unsettled(10).unwrap().is_empty());
         let hit = &idx.find("", 10).unwrap()[0];
         assert_eq!((hit.look, hit.burst), (Some(42), 7));
+        // Closed first: Windows won't delete a file that's still open.
+        drop(idx);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
