@@ -1,3 +1,4 @@
+pub mod clipboard;
 mod config;
 mod index;
 pub mod status;

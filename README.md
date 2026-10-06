@@ -140,7 +140,7 @@ sudo dnf install git curl gcc gcc-c++ make pkgconf-pkg-config fontconfig-devel l
 sudo zypper install git curl gcc gcc-c++ make pkg-config fontconfig-devel libxkbcommon-x11-devel wayland-devel libxcb-devel
 ```
 
-Optional: install `wl-clipboard` (Wayland) or `xclip` (X11) to enable copying images. Copying text works without them.
+Optional: install `wl-clipboard` (Wayland) or `xclip` (X11) to enable copying images, and saving copied images (off by default). Copying text works without them.
 
 #### 2. Install Rust
 

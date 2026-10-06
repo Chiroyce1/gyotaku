@@ -1,3 +1,4 @@
+mod clipboard;
 mod indexer;
 mod platform;
 mod watch;
@@ -53,6 +54,9 @@ enum Command {
         #[arg(long, default_value_t = gyotaku_core::default_threads())]
         threads: usize,
     },
+    /// Run by the clipboard watcher for each image copied, see clipboard::hand_over
+    #[command(hide = true)]
+    ClipboardIncoming { dir: PathBuf },
 }
 
 fn main() -> Result<()> {
@@ -72,7 +76,7 @@ fn main() -> Result<()> {
         Command::Index { dirs, threads } => {
             let config = Config::load_or_default();
             let dirs = if dirs.is_empty() {
-                config.folders
+                config.reading_folders()
             } else {
                 dirs
             };
@@ -104,6 +108,7 @@ fn main() -> Result<()> {
             boxes,
             threads,
         } => ocr(&image, boxes, threads)?,
+        Command::ClipboardIncoming { dir } => clipboard::hand_over(&dir)?,
     }
     Ok(())
 }

@@ -1,3 +1,11 @@
+use std::ffi::OsString;
+use std::io::BufRead as _;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
+
 pub fn become_idle() {
     unsafe {
         let param = libc::sched_param { sched_priority: 0 };
@@ -34,4 +42,288 @@ pub fn on_battery() -> bool {
             let read = |f: &str| std::fs::read_to_string(supply.path().join(f)).unwrap_or_default();
             read("type").trim() == "Battery" && read("status").trim() == "Discharging"
         })
+}
+
+// The clipboard. On Wayland only the compositor knows when it changes, and it
+// tells clients through the data control protocol, which wl-paste (from
+// wl-clipboard, the same package as the wl-copy the window copies with)
+// speaks for both its wlroots and its ext flavour. On X11, XFixes says when
+// the clipboard gets a new owner and xclip reads it, INCR transfers and all.
+// Nothing is polled either way.
+
+pub struct ClipboardWatch {
+    /// Dropped with the handle, which wakes the thread from any wait.
+    _stop: mpsc::Sender<()>,
+    stopped: Arc<AtomicBool>,
+    wl_paste: Arc<Mutex<Option<Child>>>,
+}
+
+impl Drop for ClipboardWatch {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Relaxed);
+        if let Some(mut child) = self.wl_paste.lock().expect("not poisoned").take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+pub fn watch_clipboard(found: mpsc::Sender<Vec<u8>>) -> ClipboardWatch {
+    let (stop, wait) = mpsc::channel::<()>();
+    let stopped = Arc::new(AtomicBool::new(false));
+    let wl_paste = Arc::new(Mutex::new(None));
+    let watch = ClipboardWatch {
+        _stop: stop,
+        stopped: stopped.clone(),
+        wl_paste: wl_paste.clone(),
+    };
+    let _ = std::thread::Builder::new()
+        .name("clipboard watch".into())
+        .spawn(move || {
+            let mut said = None;
+            loop {
+                let (again, why) = match session() {
+                    Some(Session::Wayland(display)) => wayland(&display, &found, &wl_paste),
+                    Some(Session::X11) => x11(&found, &stopped),
+                    None => (Duration::from_secs(30), "no desktop session to watch yet"),
+                };
+                if stopped.load(Ordering::Relaxed) {
+                    return;
+                }
+                // Said once, not every time it's tried again.
+                if said != Some(why) {
+                    eprintln!("clipboard: {why}, trying again in {}s", again.as_secs());
+                    said = Some(why);
+                }
+                if !matches!(
+                    wait.recv_timeout(again),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    return;
+                }
+            }
+        });
+    watch
+}
+
+enum Session {
+    Wayland(OsString),
+    X11,
+}
+
+fn session() -> Option<Session> {
+    if let Some(display) = std::env::var_os("WAYLAND_DISPLAY") {
+        return Some(Session::Wayland(display));
+    }
+    // A reader started by systemd before the desktop finished starting has
+    // none of the desktop's variables, but the compositor's socket is where
+    // every compositor puts it.
+    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR")
+        && let Some(socket) = wayland_socket(Path::new(&runtime))
+    {
+        return Some(Session::Wayland(socket));
+    }
+    std::env::var_os("DISPLAY").map(|_| Session::X11)
+}
+
+fn wayland_socket(runtime: &Path) -> Option<OsString> {
+    use std::os::unix::fs::FileTypeExt as _;
+    let mut sockets: Vec<OsString> = std::fs::read_dir(runtime)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_socket()))
+        .map(|e| e.file_name())
+        .filter(|n| n.to_str().is_some_and(is_wayland_socket))
+        .collect();
+    sockets.sort();
+    sockets.into_iter().next()
+}
+
+/// `wayland-1`, not its `wayland-1.lock` or a compositor's own IPC socket.
+fn is_wayland_socket(name: &str) -> bool {
+    name.strip_prefix("wayland-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Runs `wl-paste --watch` until it stops (the compositor went away, or the
+/// watch was dropped), and says how long to wait before trying again and why.
+/// wl-paste runs `gyotaku clipboard-incoming` for every image copied, which
+/// leaves it in a file and prints the path, see `clipboard::hand_over`.
+fn wayland(
+    display: &OsString,
+    found: &mpsc::Sender<Vec<u8>>,
+    slot: &Mutex<Option<Child>>,
+) -> (Duration, &'static str) {
+    let (Ok(exe), Ok(data)) = (std::env::current_exe(), gyotaku_core::data_dir()) else {
+        return (Duration::from_secs(600), "can't find where gyotaku lives");
+    };
+    let incoming = data.join("clipboard-incoming");
+    // Left by a reader that was stopped halfway.
+    let _ = std::fs::remove_dir_all(&incoming);
+    if std::fs::create_dir_all(&incoming).is_err() {
+        return (
+            Duration::from_secs(600),
+            "can't make a folder to pass images through",
+        );
+    }
+    // An image already on the clipboard is announced the moment watching
+    // starts. It was copied before, so it's passed over.
+    let mut skip = Command::new("wl-paste")
+        .env("WAYLAND_DISPLAY", display)
+        .arg("--list-types")
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|o| o.stdout.split(|b| *b == b'\n').any(|t| t == b"image/png"));
+    let spawned = Command::new("wl-paste")
+        .env("WAYLAND_DISPLAY", display)
+        .args(["--type", "image/png", "--watch"])
+        .arg(exe)
+        .arg("clipboard-incoming")
+        .arg(&incoming)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return (
+                Duration::from_secs(600),
+                "wl-paste isn't installed (it comes with wl-clipboard), so copied images aren't saved",
+            );
+        }
+        Err(_) => return (Duration::from_secs(60), "couldn't start wl-paste"),
+    };
+    let Some(lines) = child.stdout.take() else {
+        let _ = child.kill();
+        return (Duration::from_secs(60), "couldn't start wl-paste");
+    };
+    *slot.lock().expect("not poisoned") = Some(child);
+    for line in std::io::BufReader::new(lines).lines() {
+        let Ok(line) = line else { break };
+        let file = PathBuf::from(line.trim());
+        if !file.starts_with(&incoming) {
+            continue;
+        }
+        let bytes = std::fs::read(&file);
+        let _ = std::fs::remove_file(&file);
+        if std::mem::take(&mut skip) {
+            continue;
+        }
+        if let Ok(bytes) = bytes
+            && found.send(bytes).is_err()
+        {
+            break;
+        }
+    }
+    if let Some(mut child) = slot.lock().expect("not poisoned").take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    // Without data control (GNOME's compositor has none) wl-paste exits
+    // straight away, and it would every time.
+    (Duration::from_secs(60), "wl-paste stopped watching")
+}
+
+/// Waits for XFixes to say the clipboard has a new owner, then reads it with
+/// xclip. A dropped watch notices at the next change, since the wait for an
+/// X event can't be interrupted from outside.
+fn x11(found: &mpsc::Sender<Vec<u8>>, stopped: &AtomicBool) -> (Duration, &'static str) {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::Event;
+    use x11rb::protocol::xfixes::{ConnectionExt as _, SelectionEventMask};
+    use x11rb::protocol::xproto::{ConnectionExt as _, CreateWindowAux, WindowClass};
+
+    let Ok((conn, screen)) = x11rb::connect(None) else {
+        return (Duration::from_secs(30), "can't reach the X server");
+    };
+    let watching = (|| -> Result<(), Box<dyn std::error::Error>> {
+        conn.xfixes_query_version(5, 0)?.reply()?;
+        let root = conn.setup().roots[screen].root;
+        let clipboard = conn.intern_atom(false, b"CLIPBOARD")?.reply()?.atom;
+        let window = conn.generate_id()?;
+        conn.create_window(
+            0,
+            window,
+            root,
+            0,
+            0,
+            1,
+            1,
+            0,
+            WindowClass::INPUT_ONLY,
+            0,
+            &CreateWindowAux::new(),
+        )?;
+        conn.xfixes_select_selection_input(
+            window,
+            clipboard,
+            SelectionEventMask::SET_SELECTION_OWNER,
+        )?;
+        conn.flush()?;
+        Ok(())
+    })();
+    if watching.is_err() {
+        return (Duration::from_secs(600), "the X server has no XFixes");
+    }
+    loop {
+        let Ok(event) = conn.wait_for_event() else {
+            return (Duration::from_secs(30), "lost the X server");
+        };
+        if stopped.load(Ordering::Relaxed) {
+            return (Duration::ZERO, "stopped");
+        }
+        if !matches!(event, Event::XfixesSelectionNotify(_)) {
+            continue;
+        }
+        match xclip_image() {
+            Ok(Some(bytes)) => {
+                if found.send(bytes).is_err() {
+                    return (Duration::ZERO, "stopped");
+                }
+            }
+            Ok(None) => {}
+            Err(_) => {
+                return (
+                    Duration::from_secs(600),
+                    "xclip isn't installed, so copied images aren't saved",
+                );
+            }
+        }
+    }
+}
+
+/// The clipboard's PNG, if it holds one. Files copied in a file manager are
+/// left alone (they're files already), as is anything a password manager
+/// marked as secret. Err only when xclip can't be run at all.
+fn xclip_image() -> std::io::Result<Option<Vec<u8>>> {
+    let read = |target: &str| {
+        Command::new("xclip")
+            .args(["-selection", "clipboard", "-o", "-t", target])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+    };
+    let targets = read("TARGETS")?;
+    let targets = String::from_utf8_lossy(&targets.stdout);
+    let offered = |t: &str| targets.lines().any(|l| l.trim() == t);
+    if !offered("image/png") || offered("text/uri-list") || offered("x-kde-passwordManagerHint") {
+        return Ok(None);
+    }
+    let png = read("image/png")?;
+    Ok((png.status.success() && !png.stdout.is_empty()).then_some(png.stdout))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_compositor_sockets_count() {
+        assert!(is_wayland_socket("wayland-0"));
+        assert!(is_wayland_socket("wayland-12"));
+        assert!(!is_wayland_socket("wayland-1.lock"));
+        assert!(!is_wayland_socket("wayland-"));
+        assert!(!is_wayland_socket("niri.wayland-1.3426.sock"));
+    }
 }

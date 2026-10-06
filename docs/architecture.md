@@ -83,6 +83,7 @@ Everything that differs between operating systems is isolated in `platform` modu
 | `crates/cli/src/platform` | | |
 | Idle priority | `SCHED_IDLE` and idle I/O priority | Process background mode |
 | Battery detection | `/sys/class/power_supply` | `GetSystemPowerStatus` |
+| Watching the clipboard, when saving copied images is on | `wl-paste --watch` on Wayland; XFixes events and `xclip` on X11 | `AddClipboardFormatListener` on a message-only window |
 | `crates/core/src/trash` | | |
 | Moving to the trash | freedesktop.org trash specification, per drive | Recycle Bin, fixed drives only |
 

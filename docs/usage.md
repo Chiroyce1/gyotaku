@@ -6,6 +6,7 @@
 - [Mouse](#mouse)
 - [Settings](#settings)
 - [Background indexing](#background-indexing)
+- [Copied images](#copied-images)
 - [Command-line interface](#command-line-interface)
 - [Flags and environment variables](#flags-and-environment-variables)
 - [File locations](#file-locations)
@@ -75,11 +76,12 @@ Open settings with Ctrl+,.
 | Folders | Folders to index. The home directory and `/` are rejected; select the specific folders your screenshots are saved to. |
 | Theme | System, light or dark. |
 | Background indexing | Enables or disables the background indexer. See [Background indexing](#background-indexing). |
+| Save copied images | Off by default. Saves every image copied to the clipboard into its own folder, so images that were never saved anywhere become searchable. See [Copied images](#copied-images). |
 | Cores per screenshot | Number of CPU cores used to read a single screenshot. Higher values are faster; lower values leave more capacity for other work. Indexing always runs at idle priority. |
 | Thumbnail cache | Clears cached thumbnails. They are regenerated on demand. |
 | Shortcuts | Lists every keyboard shortcut. Select a command and press Enter, then press the new keys; Escape cancels and Delete restores the default. New keys must include Ctrl, Alt or Super (or be a function key) and must not already be in use. Navigation keys (Escape, Enter, arrows, Page Up and Page Down, Shift+arrows) are fixed. |
 
-Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list without a restart.
+Settings are stored in `~/.config/gyotaku/config.toml` and can also be edited directly. The background indexer applies changes to the folder list and to saving copied images without a restart.
 
 ## Background indexing
 
@@ -112,6 +114,27 @@ systemctl --user status gyotaku-watch      # service state
 journalctl --user -u gyotaku-watch -f      # follow the log
 gyotaku stats                              # index location and size
 ```
+
+## Copied images
+
+With **Save copied images** enabled, the background indexer watches the clipboard and saves each image copied to it as a PNG named like `Clipboard 2026-10-06 14.03.22.png`. The folder defaults to `Clipboard` inside Pictures and can be changed with `clipboard_folder` in `config.toml`. It is indexed like any configured folder, and stays indexed after the setting is turned off, for as long as it exists.
+
+An image is not saved when:
+
+- it is smaller than 32 pixels on either side;
+- the same image was saved a moment ago;
+- it is already a file in an indexed folder, as with screenshot tools that both save and copy, and with screenshots copied out of gyotaku with Ctrl+Shift+C;
+- it was copied as a file in a file manager, or marked as private by the application that copied it (password managers do this).
+
+Nothing watches the clipboard while the setting is off, and only images are ever read from it.
+
+| System | Mechanism | Requires |
+|---|---|---|
+| Wayland | `wl-paste --watch`, through the compositor's data control protocol | `wl-clipboard`, and a compositor with data control (wlroots based compositors, KDE Plasma and niri have it; GNOME does not) |
+| X11 | XFixes selection events, read with `xclip` | `xclip` |
+| Windows | A clipboard format listener | Nothing |
+
+Because only the background indexer watches the clipboard, copied images are saved only while it runs. Messages about the clipboard watcher appear in its log (`journalctl --user -u gyotaku-watch` on systemd).
 
 ## Command-line interface
 

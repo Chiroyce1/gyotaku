@@ -1,6 +1,11 @@
 //! The few things the reader does differently on each system: getting out of
-//! the way of everything else, handing memory back, and noticing a battery.
-//! Each system has one file providing these with the same signatures.
+//! the way of everything else, handing memory back, noticing a battery, and
+//! watching the clipboard. Each system has one file providing these with the
+//! same signatures.
+//!
+//! | | Linux | Windows |
+//! |---|---|---|
+//! | the clipboard | `wl-paste --watch` on Wayland, XFixes and `xclip` on X11 | a clipboard format listener |
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -35,3 +40,12 @@ pub use imp::on_battery;
 /// files on demand), which reading would download. Pictures is often synced
 /// to OneDrive on Windows, and reading would pull the whole library down.
 pub use imp::only_in_the_cloud;
+
+/// Watches the clipboard and sends every image put on it, as the encoded
+/// bytes the clipboard holds (PNG, or BMP built from a bitmap), until the
+/// returned handle is dropped. Never fails: where the clipboard can't be
+/// watched (no desktop session yet, a helper missing) it says so on stderr
+/// and keeps trying now and then, since a reader started at login can come
+/// up before the desktop does. A port with no way to watch the clipboard
+/// returns a handle that never sends anything.
+pub use imp::{ClipboardWatch, watch_clipboard};

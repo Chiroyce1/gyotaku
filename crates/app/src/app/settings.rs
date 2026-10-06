@@ -51,6 +51,7 @@ enum Row {
     AddFolder,
     Theme,
     Background,
+    Clipboard,
     Threads,
     ClearThumbs,
     Shortcut(usize),
@@ -63,6 +64,7 @@ impl Settings {
             Row::AddFolder,
             Row::Theme,
             Row::Background,
+            Row::Clipboard,
             Row::Threads,
             Row::ClearThumbs,
         ]);
@@ -244,6 +246,7 @@ impl Gyotaku {
                                 self.change_threads(if forward { 1 } else { -1 }, cx)
                             }
                             Some(Row::Background) => self.set_background(forward, cx),
+                            Some(Row::Clipboard) => self.set_clipboard(forward, cx),
                             _ => {}
                         }
                     }
@@ -253,6 +256,10 @@ impl Gyotaku {
                         Some(Row::Background) => {
                             let on = matches!(s.service, Service::Running);
                             self.set_background(!on, cx)
+                        }
+                        Some(Row::Clipboard) => {
+                            let on = s.config.clipboard;
+                            self.set_clipboard(!on, cx)
                         }
                         Some(Row::Threads) => self.change_threads(1, cx),
                         Some(Row::ClearThumbs) => self.clear_thumbnails(cx),
@@ -497,6 +504,21 @@ impl Gyotaku {
             .map_or(8, |n| n.get())
             .min(16);
         config.threads = (config.threads as isize + by).clamp(1, max as isize) as usize;
+        self.save(config, cx);
+    }
+
+    /// The reader follows the config, so saving it is all that turns the
+    /// clipboard watching on or off. The folder is written down the first
+    /// time, so it's still read after saving is turned off again.
+    fn set_clipboard(&mut self, on: bool, cx: &mut Context<Self>) {
+        let mut config = self.current_config();
+        if config.clipboard == on {
+            return;
+        }
+        config.clipboard = on;
+        if config.clipboard_folder.is_none() {
+            config.clipboard_folder = config.clipboard_folder();
+        }
         self.save(config, cx);
     }
 
@@ -783,6 +805,25 @@ impl Gyotaku {
                                 .child(div().text_xs().text_color(theme.muted).child(status)),
                         )
                         .child(switch("background", on, theme))
+                        .into_any_element()
+                }
+                Row::Clipboard => {
+                    let detail: SharedString = match config.clipboard_folder() {
+                        Some(folder) => format!("saved in {}", tidy(&folder)).into(),
+                        None => {
+                            "keeps images you copy but never save, so they're searchable too".into()
+                        }
+                    };
+                    self.row(ix, selected, theme, cx, Key::Enter)
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .child("save copied images")
+                                .child(div().text_xs().text_color(theme.muted).child(detail)),
+                        )
+                        .child(switch("clipboard", config.clipboard, theme))
                         .into_any_element()
                 }
                 Row::Threads => {

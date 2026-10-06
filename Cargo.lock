@@ -2607,9 +2607,11 @@ dependencies = [
  "gyotaku-core",
  "gyotaku-ocr",
  "image",
+ "jiff",
  "libc",
  "notify",
  "windows-sys 0.61.2",
+ "x11rb",
 ]
 
 [[package]]

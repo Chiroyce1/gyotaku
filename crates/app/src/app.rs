@@ -1166,6 +1166,9 @@ impl Gyotaku {
             return;
         };
         let path = hit.path.clone();
+        // Already a file that's read, so the reader shouldn't save it again
+        // when it sees it on the clipboard.
+        gyotaku_core::clipboard::mark_own_copy(&path);
         let message = if platform::copy_image(&path, cx) {
             "copied the image"
         } else {

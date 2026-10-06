@@ -9,6 +9,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 use gyotaku_core::{Config, status};
 
+use crate::clipboard::Clipboard;
 use crate::indexer::{self, Indexer, Outcome};
 use crate::platform;
 
@@ -60,9 +61,17 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             return Err(e);
         }
     };
+    // Folders given by hand mean the config isn't followed, the clipboard
+    // setting included. Followed, this makes the clipboard folder before it's
+    // watched.
+    let mut clipboard = Clipboard::new();
+    if follow_config {
+        clipboard.follow(&config);
+    }
+    let fresh = clipboard.fresh();
     let mut w = Watch {
         indexer,
-        folders: fixed.clone().unwrap_or(config.folders),
+        folders: fixed.clone().unwrap_or(config.reading_folders()),
         pending: HashMap::new(),
         leaving: HashMap::new(),
         last_from: None,
@@ -72,7 +81,12 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     w.forget_the_gone(follow_config);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(tx)?;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        if let Ok(event) = &event {
+            fresh.note(event);
+        }
+        let _ = tx.send(event);
+    })?;
     for dir in &w.folders {
         watch_folder(&mut watcher, dir);
     }
@@ -137,8 +151,9 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
 
         // A config that doesn't parse (someone mid edit) is ignored until it does.
         if config_changed && let Ok(Some(config)) = Config::load_from(&config_path) {
-            let added: Vec<PathBuf> = config
-                .folders
+            clipboard.follow(&config);
+            let folders = config.reading_folders();
+            let added: Vec<PathBuf> = folders
                 .iter()
                 .filter(|f| !w.folders.contains(f))
                 .cloned()
@@ -146,15 +161,14 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             let gone: Vec<PathBuf> = w
                 .folders
                 .iter()
-                .filter(|f| !config.folders.contains(f))
+                .filter(|f| !folders.contains(f))
                 .cloned()
                 .collect();
             for gone in &gone {
                 let _ = watcher.unwatch(gone);
-                backlog.retain(|p| {
-                    !p.starts_with(gone) || config.folders.iter().any(|f| p.starts_with(f))
-                });
-                let dropped = w.forget_under(gone, &config.folders);
+                backlog
+                    .retain(|p| !p.starts_with(gone) || folders.iter().any(|f| p.starts_with(f)));
+                let dropped = w.forget_under(gone, &folders);
                 eprintln!(
                     "stopped watching {} ({dropped} screenshots forgotten)",
                     gone.display()
@@ -164,7 +178,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
             // inside it, including a folder that's still wanted
             // (~/Pictures/Screenshots after removing ~/Pictures).
             if !gone.is_empty() {
-                for dir in config.folders.iter().filter(|f| !added.contains(f)) {
+                for dir in folders.iter().filter(|f| !added.contains(f)) {
                     watch_folder(&mut watcher, dir);
                 }
             }
@@ -183,7 +197,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 w.indexer.set_threads(threads_now)?;
                 eprintln!("reading with {threads_now} threads now");
             }
-            w.folders = config.folders;
+            w.folders = folders;
         }
 
         // A folder that appeared brings files no event mentioned, and lost

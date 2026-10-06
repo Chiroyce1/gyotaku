@@ -24,8 +24,16 @@ pub struct Config {
     pub theme: ThemeChoice,
     /// Cores one screenshot may use while being read.
     pub threads: usize,
+    /// Images copied to the clipboard get saved, so the ones that were never
+    /// saved anywhere can be searched too. Off unless asked for.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub clipboard: bool,
+    /// Where those go, when not the default folder in Pictures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clipboard_folder: Option<PathBuf>,
     /// Shortcuts changed from their defaults, by name, like
-    /// `trash = "ctrl-backspace"`. Only the changed ones are written.
+    /// `trash = "ctrl-backspace"`. Only the changed ones are written. Last,
+    /// since a table has to come after the plain values.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: BTreeMap<String, String>,
 }
@@ -36,6 +44,8 @@ impl Default for Config {
             folders: pictures_dir().into_iter().collect(),
             theme: ThemeChoice::System,
             threads: default_threads(),
+            clipboard: false,
+            clipboard_folder: None,
             keys: BTreeMap::new(),
         }
     }
@@ -56,6 +66,34 @@ pub fn too_broad(folder: &Path) -> bool {
 }
 
 impl Config {
+    /// Where copied images are saved, while saving them is on.
+    pub fn clipboard_folder(&self) -> Option<PathBuf> {
+        if !self.clipboard {
+            return None;
+        }
+        self.clipboard_folder
+            .clone()
+            .or_else(|| pictures_dir().map(|p| p.join("Clipboard")))
+    }
+
+    /// The folders the reader reads: the chosen ones, plus the clipboard
+    /// folder unless one of them holds it already. That's while saving is
+    /// on, and after it's turned off too, for as long as the folder is there,
+    /// so what was saved stays searchable. The app writes the folder down
+    /// when saving is turned on, which is how it's still known after.
+    pub fn reading_folders(&self) -> Vec<PathBuf> {
+        let mut folders = self.folders.clone();
+        let clips = self
+            .clipboard_folder()
+            .or_else(|| self.clipboard_folder.clone().filter(|f| f.is_dir()));
+        if let Some(clips) = clips
+            && !folders.iter().any(|f| clips.starts_with(f))
+        {
+            folders.push(clips);
+        }
+        folders
+    }
+
     pub fn path() -> Result<PathBuf> {
         let dirs = directories::ProjectDirs::from("", "", "gyotaku")
             .context("could not work out a home directory")?;
@@ -140,6 +178,8 @@ mod tests {
             folders: vec!["/a/b".into(), "/c".into()],
             theme: ThemeChoice::Dark,
             threads: 2,
+            clipboard: true,
+            clipboard_folder: Some("/c/copied".into()),
             keys: BTreeMap::from([("trash".into(), "ctrl-backspace".into())]),
         };
         config.save_to(&path).unwrap();
@@ -156,8 +196,63 @@ mod tests {
     fn unchanged_shortcuts_leave_no_trace() {
         let path = scratch("nokeys");
         Config::default().save_to(&path).unwrap();
-        assert!(!std::fs::read_to_string(&path).unwrap().contains("keys"));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("keys") && !text.contains("clipboard"),
+            "{text}"
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn the_clipboard_folder_is_read_only_while_saving_is_on() {
+        let mut config = Config {
+            folders: vec!["/p/shots".into()],
+            clipboard_folder: Some("/p/copied".into()),
+            ..Config::default()
+        };
+        assert_eq!(config.clipboard_folder(), None);
+        assert_eq!(config.reading_folders(), vec![PathBuf::from("/p/shots")]);
+
+        config.clipboard = true;
+        assert_eq!(config.clipboard_folder(), Some("/p/copied".into()));
+        assert_eq!(
+            config.reading_folders(),
+            vec![PathBuf::from("/p/shots"), "/p/copied".into()]
+        );
+
+        // Already inside a folder that's read, so not listed twice.
+        config.folders = vec!["/p".into()];
+        assert_eq!(config.reading_folders(), vec![PathBuf::from("/p")]);
+    }
+
+    #[test]
+    fn what_was_saved_stays_searchable_after_turning_it_off() {
+        let clips = scratch("clips").parent().unwrap().to_path_buf();
+        std::fs::create_dir_all(&clips).unwrap();
+        let config = Config {
+            folders: vec!["/p/shots".into()],
+            clipboard: false,
+            clipboard_folder: Some(clips.clone()),
+            ..Config::default()
+        };
+        assert_eq!(config.clipboard_folder(), None, "nothing new is saved");
+        assert_eq!(
+            config.reading_folders(),
+            vec!["/p/shots".into(), clips.clone()]
+        );
+        std::fs::remove_dir_all(clips).unwrap();
+    }
+
+    #[test]
+    fn the_clipboard_folder_defaults_to_one_in_pictures() {
+        let config = Config {
+            clipboard: true,
+            ..Config::default()
+        };
+        if let Some(pictures) = pictures_dir() {
+            assert_eq!(config.clipboard_folder(), Some(pictures.join("Clipboard")));
+        }
     }
 
     #[test]
