@@ -51,10 +51,12 @@ pub fn resident_address() -> PathBuf {
     std::env::temp_dir().join(format!("gyotaku-{}.sock", unsafe { libc::getuid() }))
 }
 
-/// Asks a running instance to toggle its window. False if there isn't one.
+/// Asks a running instance to show its window. False if there isn't one.
+/// Opening the app (Spotlight, Finder) always shows it, like Raycast; only
+/// the summon key, which the app handles itself, toggles.
 pub fn wake(socket: &Path) -> bool {
     match UnixStream::connect(socket) {
-        Ok(mut stream) => stream.write_all(b"toggle\n").is_ok(),
+        Ok(mut stream) => stream.write_all(b"show\n").is_ok(),
         Err(_) => false,
     }
 }

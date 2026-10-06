@@ -81,8 +81,10 @@ pub fn wake(port_file: &Path) -> bool {
         );
     }
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    // Opening it from the Start menu always shows the window; only the
+    // summon key, which the app handles itself, toggles.
     match TcpStream::connect_timeout(&addr, Duration::from_millis(300)) {
-        Ok(mut stream) => stream.write_all(b"toggle\n").is_ok(),
+        Ok(mut stream) => stream.write_all(b"show\n").is_ok(),
         Err(_) => false,
     }
 }

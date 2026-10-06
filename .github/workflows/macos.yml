@@ -184,9 +184,12 @@ jobs:
           first=$(pgrep -x gyotaku-app)
           lsappinfo info -only ApplicationType "$first" | tee apptype.txt || true
           grep -qi uielement apptype.txt || echo "::warning::not listed as an accessory (UIElement) app: $(cat apptype.txt)"
-          osascript -e 'tell application "System Events" to get description of every menu bar item of menu bar 2 of process "gyotaku-app"' || echo "::warning::couldn't read the menu bar icon"
+          osascript -e 'tell application "System Events" to get every menu bar item of every menu bar of process "gyotaku-app"' || echo "::warning::couldn't read the menu bar icon"
 
-          # Cmd+Q puts the window away instead of quitting.
+          # Cmd+Q puts the window away instead of quitting. System Events
+          # types into the frontmost app, so gyotaku is brought forward first.
+          osascript -e 'tell application "System Events" to set frontmost of process "gyotaku-app" to true' || true
+          sleep 0.5
           osascript -e 'tell application "System Events" to keystroke "q" using {command down}' || true
           sleep 1.5
           screencapture -x shots/6-cmd-q.png

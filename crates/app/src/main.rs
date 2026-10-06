@@ -106,13 +106,25 @@ fn main() -> Result<()> {
         .detach();
 
         // A second launch, or the summon key where the app registers one
-        // itself, knocks; each knock toggles the window.
+        // itself, knocks. The summon key toggles the window; a launch says
+        // whether to toggle (Linux, where the desktop's shortcut is a
+        // launch) or just show it (opening the app on macOS and Windows).
         let Some(listener) = listener else { return };
         let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
+        let (shows, mut shown) = futures::channel::mpsc::unbounded();
         platform::register_summon(knocks.clone(), &config.keys, cx);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                if stream.is_ok() && knocks.unbounded_send(()).is_err() {
+                let Ok(stream) = stream else { continue };
+                let mut said = String::new();
+                let _ =
+                    std::io::BufRead::read_line(&mut std::io::BufReader::new(stream), &mut said);
+                let sent = if said.trim() == "show" {
+                    shows.unbounded_send(())
+                } else {
+                    knocks.unbounded_send(())
+                };
+                if sent.is_err() {
                     break;
                 }
             }
@@ -120,6 +132,12 @@ fn main() -> Result<()> {
         cx.spawn(async move |cx| {
             while knocked.next().await.is_some() {
                 cx.update(toggle);
+            }
+        })
+        .detach();
+        cx.spawn(async move |cx| {
+            while shown.next().await.is_some() {
+                cx.update(summon);
             }
         })
         .detach();
