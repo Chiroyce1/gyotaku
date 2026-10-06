@@ -191,7 +191,7 @@ See the [usage guide](docs/usage.md) for all keys, settings and commands.
 
 ## Privacy
 
-gyotaku runs entirely on your machine. It has no telemetry, accounts or update checks. Its only network access is the one-time download of the OCR models (from ModelScope) and ONNX Runtime (Microsoft's official build, from GitHub), each verified against a pinned SHA-256 checksum before use.
+gyotaku runs entirely on your machine. It has no telemetry, accounts or update checks. Its only network access is the one-time download of the OCR models (from this repository's releases, with ModelScope as a fallback) and ONNX Runtime (Microsoft's official build, from GitHub), each verified against a pinned SHA-256 checksum before use.
 
 ## Roadmap
 
