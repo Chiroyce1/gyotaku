@@ -63,7 +63,7 @@ function Card({
     <li
       className={`flex flex-col overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow)] ${wide ? "sm:col-span-2" : ""}`}
     >
-      <div className="relative overflow-hidden border-b border-line" style={{ height }}>
+      <div data-card={title} className="@container relative overflow-hidden border-b border-line" style={{ height }}>
         {children}
       </div>
       <div className="flex flex-col gap-1 px-5 pt-4 pb-5">
@@ -105,7 +105,10 @@ function Showcase({
 }) {
   return (
     <div
-      className={`grid items-center gap-8 md:gap-14 ${
+      data-row={title}
+      // minmax(0, 1fr): on a phone the single column must not grow to fit a
+      // wide demo, or the whole row slides off the right edge.
+      className={`grid grid-cols-[minmax(0,1fr)] items-center gap-8 md:gap-14 ${
         flip
           ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]"
           : "md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
@@ -127,15 +130,24 @@ function Showcase({
             className="object-cover"
             style={{ scale: crop.scale, transformOrigin: crop.origin }}
           />
-          <div className="relative p-4 sm:p-9">
+          <div className="relative p-3 sm:p-9">
             <div
+              data-window={title}
               className="relative overflow-hidden rounded-xl bg-panel"
               style={{
                 height,
                 boxShadow: "0 30px 80px -20px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.08)",
               }}
             >
-              <div style={{ zoom, height: height / zoom }}>{children}</div>
+              {/* Drawn larger only where the window has room for it; on a
+                  phone the demo gets the window at its own size. The demo
+                  inside reads its width as a container, so it can reflow. */}
+              <div
+                className="@container h-[var(--h)] md:h-[calc(var(--h)/var(--z))] md:[zoom:var(--z)]"
+                style={{ "--z": zoom, "--h": `${height}px` } as CSSProperties}
+              >
+                {children}
+              </div>
             </div>
           </div>
         </div>
@@ -361,19 +373,24 @@ function NearDemo() {
         </span>
       </label>
 
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-2 p-2.5">
-        {ordered.map((s) => (
+      {/* Three screenshots where the window is wide; on a phone the two that
+          rank first, with room for their lines to wrap instead of cutting
+          off the word that's lit. */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 p-2.5 @min-[26rem]:grid-cols-3">
+        {ordered.map((s, rank) => (
           <motion.div
             layout
             transition={SPRING}
             key={s.id}
-            className="relative overflow-hidden rounded-[6px] p-2 outline outline-1 -outline-offset-1 outline-[var(--outline)] sm:p-3"
+            className={`relative overflow-hidden rounded-[6px] p-2 outline outline-1 -outline-offset-1 outline-[var(--outline)] sm:p-3 ${
+              rank === 2 ? "hidden @min-[26rem]:block" : ""
+            }`}
             style={{ backgroundColor: PAPER, color: PAPER_INK, ...tileState(s.best !== null, q !== "", false) }}
           >
-            <p className="truncate text-[11px] font-semibold sm:text-[12px]">{s.head}</p>
-            <div className="mt-1.5 flex flex-col items-start gap-1 text-[10px] sm:text-[12px]">
+            <p className="text-[12px] font-semibold @min-[26rem]:truncate">{s.head}</p>
+            <div className="mt-1.5 flex flex-col items-start gap-1 text-[11px] leading-snug sm:text-[12px]">
               {s.lines.map((l, i) => (
-                <span key={l} className="max-w-full truncate" style={lit(s.hits[i])}>
+                <span key={l} className="max-w-full break-words @min-[26rem]:truncate" style={lit(s.hits[i])}>
                   {l}
                 </span>
               ))}
@@ -392,7 +409,10 @@ function NearDemo() {
         ))}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-2.5 pb-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        data-scroll-x
+        className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-2.5 pb-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {["invoice", "inv0ice", "#4021", "gate"].map((c) => {
           const on = q === c;
           return (
@@ -549,7 +569,10 @@ function FiltersDemo() {
         ))}
       </ul>
 
-      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-2.5 pb-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        data-scroll-x
+        className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-2.5 pb-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {["in:discord", "in:screenshots", "date:yesterday", "date:week"].map((c) => {
           const on = query.split(/\s+/).includes(c);
           return (
@@ -656,7 +679,9 @@ function TrashDemo() {
 
       {/* The tiles sit in the space above the bar, so it never covers them. */}
       <div className="relative flex min-h-0 flex-1 items-center px-2.5 pt-2.5 pb-[60px]">
-        <ul className="grid w-full grid-cols-4 gap-2">
+        {/* Four across where the card is wide enough to read each code; a
+            two by two grid on a narrow phone, so none is cut short. */}
+        <ul className="grid w-full grid-cols-2 gap-2 @min-[21rem]:grid-cols-4">
           <AnimatePresence mode="popLayout" initial={false}>
             {OTPS.filter((o) => here.includes(o.id)).map((o) => {
               const on = marked.includes(o.id);
@@ -668,7 +693,7 @@ function TrashDemo() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.96, y: 4, transition: { duration: 0.18 } }}
                   transition={SPRING}
-                  className="h-[92px]"
+                  className="h-[58px] @min-[21rem]:h-[92px]"
                 >
                   <button
                     type="button"
@@ -690,8 +715,10 @@ function TrashDemo() {
                     <span className="truncate text-[10px]" style={{ color: PAPER_DIM }}>
                       {o.from}
                     </span>
-                    <span className="mt-1 text-[10px] leading-tight">Your OTP is</span>
-                    <span className="truncate font-mono text-[12px] font-semibold tracking-wide">{o.code}</span>
+                    <span className="mt-1 hidden text-[10px] leading-tight @min-[21rem]:block">Your OTP is</span>
+                    <span className="truncate font-mono text-[12px] font-semibold tracking-wide @min-[21rem]:text-[11px] @min-[21rem]:tracking-normal @min-[26rem]:text-[12px] @min-[26rem]:tracking-wide">
+                      {o.code}
+                    </span>
                     <motion.span
                       aria-hidden
                       className="absolute top-1.5 right-1.5 grid size-4 place-items-center rounded-full bg-shu text-[var(--on-shu,#fff)]"
@@ -775,11 +802,14 @@ const BURST = 4;
 const W = 76;
 const H = 104;
 const STEP = 86;
+// Room kept clear at each side of the unfolded row.
+const SIDE = 12;
 
 // Folded: stacked behind the newest, each a little askew. Unfolded: in a
-// row, the rest right after it.
-function burstPose(i: number, open: boolean) {
-  if (open) return { x: (i - (BURST - 1) / 2) * STEP - W / 2, y: 0, rotate: 0 };
+// row, the rest right after it, overlapping a little where the window is too
+// narrow to lay them side by side.
+function burstPose(i: number, open: boolean, step: number) {
+  if (open) return { x: (i - (BURST - 1) / 2) * step - W / 2, y: 0, rotate: 0 };
   const tilt = [0, -5, 4, -2][i];
   return { x: -W / 2 + i * 5, y: -i * 4, rotate: tilt };
 }
@@ -790,6 +820,24 @@ function BurstDemo() {
   const root = useRef<HTMLDivElement>(null);
   const seen = useInView(root, { once: true, amount: 0.7 });
   const reduce = useReducedMotion();
+  const [step, setStep] = useState(STEP);
+
+  // The unfolded row has to fit the window it's in. ResizeObserver reports
+  // once on observe, so it only acts on a real change of width.
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    let last = -1;
+    const fit = () => {
+      const w = el.clientWidth;
+      if (w === last) return;
+      last = w;
+      setStep(Math.min(STEP, Math.max(0, (w - 2 * SIDE - W) / (BURST - 1))));
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Shown once, unprompted: it unfolds, holds, folds back. Touching the card
   // first skips it.
@@ -830,7 +878,7 @@ function BurstDemo() {
             className="absolute top-0 left-0 overflow-hidden rounded-[6px] shadow-[0_1px_2px_rgb(0_0_0/0.12),0_6px_14px_-6px_rgb(0_0_0/0.3)]"
             style={{ width: W, height: H, background: PAPER, zIndex: BURST - i }}
             initial={false}
-            animate={burstPose(i, open)}
+            animate={burstPose(i, open, step)}
             transition={{ type: "spring", duration: 0.45, bounce: 0, delay: open ? i * 0.03 : (BURST - 1 - i) * 0.02 }}
           >
             <ChatShot scroll={i} />
@@ -1013,7 +1061,7 @@ function CopyDemo() {
                 }
                 copy([i]);
               }}
-              className={`max-w-full truncate rounded-[3px] px-1 text-left ${
+              className={`max-w-full rounded-[3px] px-1 text-left break-words @min-[22rem]:truncate ${
                 i === 0 ? "text-[13px] font-semibold" : "font-mono text-[11.5px]"
               } [@media(hover:hover)_and_(pointer:fine)]:group-hover:shadow-[0_0_0_1px_rgb(0_0_0/0.08)]`}
               style={{
@@ -1133,10 +1181,16 @@ function ClipboardDemo() {
         </button>
       </div>
 
-      <div ref={stage} className="relative flex flex-1 items-center gap-3">
+      {/* Side by side where the card is wide enough; stacked on a narrow
+          card (the picture beside its button, the folder below), since the
+          three pieces need about 340px in a row. */}
+      <div
+        ref={stage}
+        className="relative flex flex-1 flex-col items-center justify-center gap-2 @min-[22rem]:flex-row @min-[22rem]:gap-3"
+      >
         {/* Somewhere else on the screen: a picture someone copies. */}
-        <div className="flex flex-1 flex-col items-center gap-2">
-          <div ref={source} className="relative h-[72px] w-[104px] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)]">
+        <div className="flex items-center gap-3 @min-[22rem]:flex-1 @min-[22rem]:flex-col @min-[22rem]:gap-2">
+          <div ref={source} className="relative h-[56px] w-[80px] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)] @min-[22rem]:h-[72px] @min-[22rem]:w-[104px]">
             <Picture />
           </div>
           <button
@@ -1149,11 +1203,11 @@ function ClipboardDemo() {
           </button>
         </div>
 
-        <svg viewBox="0 0 24 8" aria-hidden className="w-6 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 8" aria-hidden className="my-1 w-5 shrink-0 rotate-90 text-faint @min-[22rem]:my-0 @min-[22rem]:w-6 @min-[22rem]:rotate-0" fill="none" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" strokeLinejoin="round">
           <path d="M1 4h21M18.5 1 22 4l-3.5 3" />
         </svg>
 
-        <div className="flex flex-1 flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-1.5 @min-[22rem]:flex-1 @min-[22rem]:gap-2">
           <div
             ref={target}
             className="flex h-10 items-center gap-2 rounded-[8px] bg-panel px-3 text-[13px] text-ink shadow-[0_0_0_1px_var(--line)]"
@@ -1181,7 +1235,7 @@ function ClipboardDemo() {
           <motion.div
             key={f.id}
             aria-hidden
-            className="pointer-events-none absolute z-20 h-[72px] w-[104px] overflow-hidden rounded-[6px] shadow-[0_8px_20px_-6px_rgb(0_0_0/0.35)]"
+            className="pointer-events-none absolute z-20 h-[56px] w-[80px] overflow-hidden rounded-[6px] shadow-[0_8px_20px_-6px_rgb(0_0_0/0.35)] @min-[22rem]:h-[72px] @min-[22rem]:w-[104px]"
             style={{ left: f.left, top: f.top }}
             initial={{ x: 0, y: 0, scale: 1, opacity: 1 }}
             animate={{ x: f.dx, y: f.dy, scale: 0.25, opacity: [1, 1, 0] }}
@@ -1382,7 +1436,7 @@ function ShortcutsDemo() {
   return (
     // A slice of the settings page: a narrow list, names and keys close
     // enough to read as pairs.
-    <div className="mx-auto flex h-full w-full max-w-[460px] flex-col justify-center gap-1 p-2.5">
+    <div className="mx-auto flex h-full w-full max-w-[460px] flex-col justify-center gap-1 px-1.5 py-2.5 @min-[22rem]:px-2.5">
       <p className="px-3 pb-1 text-[11px] font-medium tracking-wide text-faint">SHORTCUTS</p>
       {COMMANDS.map((c, i) => {
         const rec = recording === i;
@@ -1407,7 +1461,7 @@ function ShortcutsDemo() {
             }}
             onBlur={() => rec && stop()}
             aria-label={`${c.name}: ${keys[i].join(" ")}. Press Enter, then the new keys.`}
-            className="press flex h-11 shrink-0 items-center gap-3 rounded-[8px] px-3 text-left"
+            className="press flex h-11 shrink-0 items-center gap-2 rounded-[8px] px-2 text-left @min-[22rem]:gap-3 @min-[22rem]:px-3"
             style={{
               background: rec ? "var(--sunk)" : "transparent",
               boxShadow: rec ? "0 0 0 1.5px var(--shu)" : "0 0 0 1.5px transparent",
@@ -1415,7 +1469,7 @@ function ShortcutsDemo() {
             }}
           >
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[14px] text-ink">{c.name}</span>
+              <span className="truncate text-[13px] text-ink @min-[22rem]:text-[14px]">{c.name}</span>
               <span
                 className="h-4 text-[11px]"
                 // A refusal is said plainly in ink, with the shake; shu is
@@ -1427,7 +1481,7 @@ function ShortcutsDemo() {
             </span>
             <span className="relative grid shrink-0 justify-items-end">
               <motion.span
-                className="col-start-1 row-start-1 flex items-center gap-1"
+                className="col-start-1 row-start-1 flex items-center gap-0.5 @min-[22rem]:gap-1"
                 initial={false}
                 animate={rec ? { opacity: 0, filter: "blur(4px)" } : { opacity: 1, filter: "blur(0px)" }}
                 transition={SPRING}
@@ -1468,8 +1522,10 @@ export function Features() {
       {/* The caret's blink, and two focus rules strong enough to win over
           the page-wide :focus-visible one: the demo search boxes show focus
           with their caret like the app does, and the keyboard-driven demos
-          draw their ring inside, where the rounded demo area can't clip it. */}
-      <style>{`@keyframes caret-blink{0%,45%{opacity:1}55%,100%{opacity:0}}.caret-blink{animation:caret-blink 1s steps(1,end) infinite}@media (prefers-reduced-motion: reduce){.caret-blink{animation:none}}.feat-input:focus-visible{outline:none}.feat-group:focus-visible{outline:2px solid var(--shu);outline-offset:-2px;border-radius:16px 16px 0 0}`}</style>
+          draw their ring inside, where the rounded demo area can't clip it.
+          On touch, the 28px chips and buttons reach 44px with an invisible
+          margin of hit area, and the chip rows make room above for it. */}
+      <style>{`@keyframes caret-blink{0%,45%{opacity:1}55%,100%{opacity:0}}.caret-blink{animation:caret-blink 1s steps(1,end) infinite}@media (prefers-reduced-motion: reduce){.caret-blink{animation:none}}.feat-input:focus-visible{outline:none}.feat-group:focus-visible{outline:2px solid var(--shu);outline-offset:-2px;border-radius:16px 16px 0 0}@media (pointer:coarse){#features button.press.h-7{position:relative}#features button.press.h-7::after{content:"";position:absolute;inset:-8px -2px}#features [data-scroll-x]{padding-top:8px;margin-top:-8px}}`}</style>
       <section
         id="features"
         aria-labelledby="features-title"
