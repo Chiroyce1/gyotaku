@@ -63,6 +63,16 @@ sha256() {
 }
 
 stop_background() {
+    if [ "$(uname -s)" = Darwin ]; then
+        # Booting out the agent also unloads it, so one call does both.
+        launchctl bootout "gui/$(id -u)/io.github.xevrion.gyotaku.watch" >/dev/null 2>&1 || true
+        rm -f "$HOME/Library/LaunchAgents/io.github.xevrion.gyotaku.watch.plist"
+        if has pkill; then
+            pkill -x gyotaku-app 2>/dev/null || true
+            pkill -f "gyotaku watch" 2>/dev/null || true
+        fi
+        return
+    fi
     if has systemctl && systemctl --user is-enabled gyotaku-watch.service >/dev/null 2>&1; then
         systemctl --user disable --now gyotaku-watch.service >/dev/null 2>&1 || true
     fi
@@ -99,9 +109,15 @@ uninstall() {
     say ""
     say "Your screenshots were not touched. The index, settings and thumbnails are"
     say "still there in case you come back. To remove those too:"
-    say "  rm -rf $CONFIG_HOME/gyotaku $DATA_HOME/gyotaku $CACHE_HOME/gyotaku"
-    say ""
-    say "Remember to remove the keyboard shortcut you set up for gyotaku-app."
+    if [ "$(uname -s)" = Darwin ]; then
+        say "  rm -rf \"$HOME/Library/Application Support/gyotaku\" \"$HOME/Library/Caches/gyotaku\""
+        say ""
+        say "The app registered its own shortcut, so there is no keyboard shortcut left to remove."
+    else
+        say "  rm -rf $CONFIG_HOME/gyotaku $DATA_HOME/gyotaku $CACHE_HOME/gyotaku"
+        say ""
+        say "Remember to remove the keyboard shortcut you set up for gyotaku-app."
+    fi
 }
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -110,36 +126,55 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 # What this machine is.
-[ "$(uname -s)" = "Linux" ] ||
-    fail "this installer is for Linux. On Windows, see https://github.com/$REPO#windows"
-case "$(uname -m)" in
-    x86_64 | amd64) arch=x86_64 ;;
-    aarch64 | arm64) arch=aarch64 ;;
-    *) fail "there's no build for $(uname -m) yet, see https://github.com/$REPO#build-from-source" ;;
+case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin)
+        os=macos
+        # Apple Silicon only: Microsoft publishes no ONNX Runtime for Intel
+        # macs, so that build needs one provided by hand.
+        [ "$(uname -m)" = arm64 ] ||
+            fail "there's no prebuilt build for Intel macs yet. It needs a build from source with ORT_DYLIB_PATH pointing at an onnxruntime library, see https://github.com/$REPO#build-from-source"
+        name=gyotaku-aarch64-macos
+        ;;
+    *) fail "this installer is for Linux and macOS. On Windows, see https://github.com/$REPO#windows" ;;
 esac
-
-# The release builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12,
-# Fedora 36 and anything since). musl systems like Alpine need a build from
-# source.
-glibc=$(ldd --version 2>&1 | head -n1 | grep -oE '[0-9]+\.[0-9]+$' || true)
-if [ -z "$glibc" ]; then
-    fail "this system doesn't use glibc, see https://github.com/$REPO#build-from-source"
-fi
-major=${glibc%%.*}
-minor=${glibc#*.}
-if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 35 ]; }; then
-    fail "glibc $glibc is older than the 2.35 the release needs, see https://github.com/$REPO#build-from-source"
+if [ "$os" = linux ]; then
+    case "$(uname -m)" in
+        x86_64 | amd64) arch=x86_64 ;;
+        aarch64 | arm64) arch=aarch64 ;;
+        *) fail "there's no build for $(uname -m) yet, see https://github.com/$REPO#build-from-source" ;;
+    esac
+    name="gyotaku-$arch-linux"
 fi
 
+if [ "$os" = linux ]; then
+    # The release builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12,
+    # Fedora 36 and anything since). musl systems like Alpine need a build
+    # from source.
+    glibc=$(ldd --version 2>&1 | head -n1 | grep -oE '[0-9]+\.[0-9]+$' || true)
+    if [ -z "$glibc" ]; then
+        fail "this system doesn't use glibc, see https://github.com/$REPO#build-from-source"
+    fi
+    major=${glibc%%.*}
+    minor=${glibc#*.}
+    if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 35 ]; }; then
+        fail "glibc $glibc is older than the 2.35 the release needs, see https://github.com/$REPO#build-from-source"
+    fi
+fi
+
+if [ "$os" = macos ]; then
+    config="$HOME/Library/Application Support/gyotaku/config.toml"
+else
+    config="$CONFIG_HOME/gyotaku/config.toml"
+fi
 first_install=true
-[ -f "$CONFIG_HOME/gyotaku/config.toml" ] && first_install=false
+[ -f "$config" ] && first_install=false
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-name="gyotaku-$arch-linux"
 base="https://github.com/$REPO/releases/latest/download"
-step "Downloading gyotaku for $arch Linux"
+step "Downloading gyotaku ($name)"
 download "$base/$name.tar.gz" "$tmp/$name.tar.gz" || fail "couldn't download $base/$name.tar.gz"
 download "$base/$name.tar.gz.sha256" "$tmp/$name.tar.gz.sha256" || fail "couldn't download the checksum"
 
@@ -176,26 +211,37 @@ if [ -f "$share/applications/$APP_ID.desktop" ]; then
 fi
 
 # A background reader set up by an earlier install whose program is gone
-# (a build from source that was uninstalled, say) would fail every 30
-# seconds forever, so it's pointed at this one. One that still works is
-# left alone.
-unit="$CONFIG_HOME/systemd/user/gyotaku-watch.service"
-if [ -f "$unit" ]; then
-    runs=$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$unit" | sed "s|%h|$HOME|")
-    if [ -n "$runs" ] && [ ! -x "$runs" ]; then
-        sed -i "s|^ExecStart=.*|ExecStart=$BIN_DIR/gyotaku watch|" "$unit"
-        if has systemctl && systemctl --user is-enabled gyotaku-watch.service >/dev/null 2>&1; then
-            systemctl --user daemon-reload || true
-            systemctl --user restart gyotaku-watch.service || true
+# (a build from source that was uninstalled, say) would fail forever, so
+# it's pointed at this one. One that still works is left alone.
+if [ "$os" = macos ]; then
+    plist="$HOME/Library/LaunchAgents/io.github.xevrion.gyotaku.watch.plist"
+    if [ -f "$plist" ]; then
+        runs=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || true)
+        if [ -n "$runs" ] && [ ! -x "$runs" ]; then
+            plutil -replace ProgramArguments -json "[\"$BIN_DIR/gyotaku\", \"watch\"]" "$plist"
+            launchctl kickstart -k "gui/$(id -u)/io.github.xevrion.gyotaku.watch" >/dev/null 2>&1 || true
+            say "Pointed the background reader at the new install."
         fi
-        say "Pointed the background reader at the new install."
     fi
-fi
-autostart="$CONFIG_HOME/autostart/gyotaku-watch.desktop"
-if [ -f "$autostart" ]; then
-    runs=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$autostart")
-    if [ -n "$runs" ] && [ ! -x "$runs" ]; then
-        sed -i "s|^Exec=.*|Exec=$BIN_DIR/gyotaku watch|" "$autostart"
+else
+    unit="$CONFIG_HOME/systemd/user/gyotaku-watch.service"
+    if [ -f "$unit" ]; then
+        runs=$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$unit" | sed "s|%h|$HOME|")
+        if [ -n "$runs" ] && [ ! -x "$runs" ]; then
+            sed -i "s|^ExecStart=.*|ExecStart=$BIN_DIR/gyotaku watch|" "$unit"
+            if has systemctl && systemctl --user is-enabled gyotaku-watch.service >/dev/null 2>&1; then
+                systemctl --user daemon-reload || true
+                systemctl --user restart gyotaku-watch.service || true
+            fi
+            say "Pointed the background reader at the new install."
+        fi
+    fi
+    autostart="$CONFIG_HOME/autostart/gyotaku-watch.desktop"
+    if [ -f "$autostart" ]; then
+        runs=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$autostart")
+        if [ -n "$runs" ] && [ ! -x "$runs" ]; then
+            sed -i "s|^Exec=.*|Exec=$BIN_DIR/gyotaku watch|" "$autostart"
+        fi
     fi
 fi
 
@@ -203,7 +249,9 @@ fi
 # version, so they're restarted onto the new one.
 if [ "$first_install" = false ]; then
     has pkill && pkill -x gyotaku-app 2>/dev/null || true
-    if has systemctl && systemctl --user is-active gyotaku-watch.service >/dev/null 2>&1; then
+    if [ "$os" = macos ]; then
+        launchctl kickstart -k "gui/$(id -u)/io.github.xevrion.gyotaku.watch" >/dev/null 2>&1 || true
+    elif has systemctl && systemctl --user is-active gyotaku-watch.service >/dev/null 2>&1; then
         systemctl --user restart gyotaku-watch.service || true
     fi
 fi
@@ -211,30 +259,32 @@ fi
 version=$("$BIN_DIR/gyotaku" --version 2>/dev/null || echo gyotaku)
 say "Installed $version."
 
-# Libraries the window needs that every desktop has, unless this is a
-# server or a very bare install.
-missing=""
-ldconfig=$(command -v ldconfig || { [ -x /sbin/ldconfig ] && echo /sbin/ldconfig; } || true)
-if [ -n "$ldconfig" ]; then
-    libs=$("$ldconfig" -p 2>/dev/null || true)
-    for lib in libxkbcommon.so.0 libxkbcommon-x11.so.0 libxcb.so.1; do
-        case "$libs" in
-            *"$lib"*) ;;
-            *) missing="$missing $lib" ;;
-        esac
-    done
-fi
-if [ -n "$missing" ]; then
-    say ""
-    say "${red}The search window needs these libraries, which aren't installed:${missing}${reset}"
-    say "  Debian, Ubuntu:  sudo apt install libxkbcommon-x11-0 libxcb1"
-    say "  Fedora:          sudo dnf install libxkbcommon-x11 libxcb"
-    say "  Arch:            sudo pacman -S libxkbcommon-x11 libxcb"
-fi
+if [ "$os" = linux ]; then
+    # Libraries the window needs that every desktop has, unless this is a
+    # server or a very bare install.
+    missing=""
+    ldconfig=$(command -v ldconfig || { [ -x /sbin/ldconfig ] && echo /sbin/ldconfig; } || true)
+    if [ -n "$ldconfig" ]; then
+        libs=$("$ldconfig" -p 2>/dev/null || true)
+        for lib in libxkbcommon.so.0 libxkbcommon-x11.so.0 libxcb.so.1; do
+            case "$libs" in
+                *"$lib"*) ;;
+                *) missing="$missing $lib" ;;
+            esac
+        done
+    fi
+    if [ -n "$missing" ]; then
+        say ""
+        say "${red}The search window needs these libraries, which aren't installed:${missing}${reset}"
+        say "  Debian, Ubuntu:  sudo apt install libxkbcommon-x11-0 libxcb1"
+        say "  Fedora:          sudo dnf install libxkbcommon-x11 libxcb"
+        say "  Arch:            sudo pacman -S libxkbcommon-x11 libxcb"
+    fi
 
-if [ -n "${WAYLAND_DISPLAY:-}" ] && ! has wl-copy; then
-    say ""
-    say "${dim}Optional: install wl-clipboard to copy images (text copies without it).${reset}"
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && ! has wl-copy; then
+        say ""
+        say "${dim}Optional: install wl-clipboard to copy images (text copies without it).${reset}"
+    fi
 fi
 
 case ":$PATH:" in
@@ -253,34 +303,40 @@ case ":$PATH:" in
         ;;
 esac
 
-# The one thing left to do by hand: a key to open it with. Desktops keep
-# shortcuts in their own settings, so it's explained for this one.
+# On Linux the desktop keeps shortcuts in its own settings, so one has to
+# be set by hand. On mac the app registers its own.
 say ""
 step "One last step: a keyboard shortcut"
-say "Bind any key you like to run:  $BIN_DIR/gyotaku-app"
-desktop=$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')
-case "$desktop" in
-    *gnome* | *ubuntu* | *unity* | *pop* | *cosmic*)
-        say "  Settings > Keyboard > View and Customize Shortcuts > Custom Shortcuts > +" ;;
-    *kde*)
-        say "  System Settings > Keyboard > Shortcuts > Add New > Command or Script" ;;
-    *xfce*)
-        say "  Settings > Keyboard > Application Shortcuts > Add" ;;
-    *cinnamon*)
-        say "  System Settings > Keyboard > Shortcuts > Custom Shortcuts > Add custom shortcut" ;;
-    *hyprland*)
-        say "  in hyprland.conf:  bind = SUPER, S, exec, $BIN_DIR/gyotaku-app" ;;
-    *sway* | *i3*)
-        say "  in your config:  bindsym \$mod+s exec $BIN_DIR/gyotaku-app" ;;
-    *niri*)
-        say "  in config.kdl, inside binds:  Mod+S { spawn \"$BIN_DIR/gyotaku-app\"; }" ;;
-    *)
-        say "  in your desktop's keyboard settings, as a custom shortcut that runs a command" ;;
-esac
-say "Pressing it again closes the window."
+if [ "$os" = macos ]; then
+    say "None needed: the app registers alt shift s itself, which opens the"
+    say "search window. Change the key in the settings."
+    say "Pressing it again closes the window."
+else
+    say "Bind any key you like to run:  $BIN_DIR/gyotaku-app"
+    desktop=$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')
+    case "$desktop" in
+        *gnome* | *ubuntu* | *unity* | *pop* | *cosmic*)
+            say "  Settings > Keyboard > View and Customize Shortcuts > Custom Shortcuts > +" ;;
+        *kde*)
+            say "  System Settings > Keyboard > Shortcuts > Add New > Command or Script" ;;
+        *xfce*)
+            say "  Settings > Keyboard > Application Shortcuts > Add" ;;
+        *cinnamon*)
+            say "  System Settings > Keyboard > Shortcuts > Custom Shortcuts > Add custom shortcut" ;;
+        *hyprland*)
+            say "  in hyprland.conf:  bind = SUPER, S, exec, $BIN_DIR/gyotaku-app" ;;
+        *sway* | *i3*)
+            say "  in your config:  bindsym \$mod+s exec $BIN_DIR/gyotaku-app" ;;
+        *niri*)
+            say "  in config.kdl, inside binds:  Mod+S { spawn \"$BIN_DIR/gyotaku-app\"; }" ;;
+        *)
+            say "  in your desktop's keyboard settings, as a custom shortcut that runs a command" ;;
+    esac
+    say "Pressing it again closes the window."
+fi
 
 if [ "$first_install" = true ] && [ "${GYOTAKU_NO_LAUNCH:-}" != "1" ] &&
-    { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; }; then
+    { [ "$os" = macos ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; }; then
     say ""
     step "Opening gyotaku to pick your screenshot folders"
     nohup "$BIN_DIR/gyotaku-app" >/dev/null 2>&1 &

@@ -16,6 +16,7 @@ This page lists the platforms gyotaku supports and their verification status. "N
 | Wayland with layer-shell (KDE Plasma, sway, Hyprland, niri, river, Wayfire) | Overlay above all windows | Verified on niri |
 | GNOME on Wayland | Regular window | Not yet verified |
 | X11 | Regular window | Verified through Xwayland |
+| macOS | Window opened and closed by the app's own global hotkey (alt shift s by default, rebindable in settings); later launches wake the resident app over a unix socket | Verified on Apple Silicon |
 
 ## Graphics
 
@@ -36,6 +37,7 @@ When software rendering is detected, animated transitions are replaced with shor
 | systemd | Background indexing as a user service | Verified |
 | Non-systemd (Void, Artix and others) | Background indexing through an XDG autostart entry | Not yet verified |
 | musl-based (Alpine, Void musl) | No ONNX Runtime build is published for musl | Not supported |
+| macOS | Background indexing through a launchd LaunchAgent, installed by the "start at login" settings toggle | Verified on Apple Silicon |
 
 ## CPU architectures
 
@@ -43,9 +45,11 @@ When software rendering is detected, animated transitions are replaced with shor
 |---|---|---|
 | x86_64 | Downloaded automatically | Verified |
 | aarch64 | Downloaded automatically | Not yet verified |
+| Apple Silicon mac (arm64) | Downloaded automatically | Verified on Apple Silicon |
+| Intel mac (x86_64) | Must be provided manually: Microsoft publishes no ONNX Runtime build for macOS x86_64 | Build from source |
 | Other (RISC-V, 32-bit) | Must be provided manually | Not supported |
 
-On architectures without an official ONNX Runtime build, build or install it separately and set `ORT_DYLIB_PATH`:
+On architectures without an official ONNX Runtime build, build or install it separately and set `ORT_DYLIB_PATH`; on an Intel mac the path points at `libonnxruntime.dylib`:
 
 ```sh
 export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
@@ -73,6 +77,5 @@ Horizontal lines and vertical columns are read: columns of Japanese or Chinese, 
 
 ## Known limitations
 
-- **Linux only.** The index, OCR engine and UI toolkit are portable to macOS and Windows; the background indexer and overlay window are not yet.
 - **Image size limits.** Images larger than about 64 megapixels are skipped to bound memory usage. Images smaller than 16 pixels on either side are also skipped.
 - **Folder restrictions.** The home directory and `/` cannot be selected as indexed folders.

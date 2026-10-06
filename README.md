@@ -4,7 +4,7 @@
 
 <p align="center">
   Search every screenshot you have ever taken by the text inside it.<br>
-  Native on Linux and Windows, fully offline, and fast on any hardware, with or without a GPU.
+  Native on Linux, macOS and Windows, fully offline, and fast on any hardware, with or without a GPU.
 </p>
 
 <h4 align="center">
@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/xevrion/gyotaku/actions/workflows/ci.yml"><img src="https://github.com/xevrion/gyotaku/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="GPL-3.0 licensed" /></a>
-  <img src="https://img.shields.io/badge/platform-linux%20%7C%20windows-blue.svg" alt="Linux and Windows" />
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20windows%20%7C%20macos-blue.svg" alt="Linux, Windows and macOS" />
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" /></a>
 </p>
 
@@ -78,11 +78,21 @@ If you prefer a regular installer, download [`gyotaku-setup-x86_64.exe`](https:/
 
 ### macOS
 
-Not supported yet. It is on the [roadmap](#roadmap).
+In a terminal:
 
-### Keyboard shortcut (Linux)
+```sh
+curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh
+```
 
-`gyotaku-app` opens the search window, and pressing the same shortcut again closes it. Bind it in your desktop's keyboard settings, using the full path `~/.local/bin/gyotaku-app`, since some desktops do not use your shell's `PATH`:
+The same installer as on Linux: it downloads the release for Apple Silicon Macs, verifies its SHA-256 checksum and installs `gyotaku` and `gyotaku-app` to `~/.local/bin`, with ONNX Runtime beside them. Apple Silicon (arm64) is supported. Microsoft publishes no ONNX Runtime build for Intel macs, so those need a [build from source](#build-from-source) with `ORT_DYLIB_PATH` pointing at an `onnxruntime` library.
+
+Config, index and models live in `~/Library/Application Support/gyotaku`, thumbnails in `~/Library/Caches/gyotaku`.
+
+### Keyboard shortcut (Linux and macOS)
+
+On macOS the app registers the shortcut itself: `Alt+Shift+S` opens the search window, and pressing it again closes it. The key can be changed in the settings.
+
+On Linux, `gyotaku-app` opens the search window, and pressing the same shortcut again closes it. Bind it in your desktop's keyboard settings, using the full path `~/.local/bin/gyotaku-app`, since some desktops do not use your shell's `PATH`:
 
 | Environment | Configuration |
 |---|---|
@@ -100,11 +110,11 @@ Not supported yet. It is on the [roadmap](#roadmap).
 On first launch, gyotaku asks:
 
 1. **Which folders contain your screenshots.** It suggests the save locations of common screenshot tools (Flameshot, Spectacle, ksnip, grim, Hyprshot, niri) along with `~/Pictures/Screenshots`, `~/Pictures` and `~/Desktop`, with the number of images in each. On Windows it suggests `Pictures\Screenshots`, where Win+PrtScn and the Snipping Tool save.
-2. **Whether to index new screenshots in the background.** On Linux this installs a systemd user service, or an XDG autostart entry on systems without systemd. On Windows it starts gyotaku when you sign in.
+2. **Whether to index new screenshots in the background.** On Linux this installs a systemd user service, or an XDG autostart entry on systems without systemd. On Windows it starts gyotaku when you sign in. On macOS the settings toggle "start at login" installs a launchd agent that reads new screenshots in the background.
 
 Indexing starts immediately, newest screenshots first, at idle CPU and I/O priority. Search is available while it runs.
 
-Before the first screenshot is read, gyotaku downloads the OCR models once (22 MB), and on Linux ONNX Runtime as well (24 MB). No network access is needed after that.
+Before the first screenshot is read, gyotaku downloads the OCR models once (22 MB), and on Linux and macOS ONNX Runtime as well (24 MB on Linux). No network access is needed after that.
 
 ### Updating
 
@@ -124,9 +134,15 @@ Windows, in PowerShell:
 $env:GYOTAKU_UNINSTALL = 1; irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
 ```
 
-Installed with the setup, gyotaku can also be uninstalled from Settings > Apps, which asks whether to delete the index and settings too.
+Installed with the setup on Windows, gyotaku can also be uninstalled from Settings > Apps, which asks whether to delete the index and settings too.
 
-Both commands stop the background indexer and remove the programs, and print how to also remove the index and settings. Remove the keyboard shortcut yourself. gyotaku never modifies or deletes your screenshots unless you move them to the trash yourself.
+macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh -s -- --uninstall
+```
+
+These commands stop the background indexer and remove the programs, and print how to also remove the index and settings. On Linux, remove the keyboard shortcut yourself. gyotaku never modifies or deletes your screenshots unless you move them to the trash yourself.
 
 ### Build from source
 
@@ -160,6 +176,16 @@ sudo zypper install git curl gcc gcc-c++ make pkg-config fontconfig-devel libxkb
 
 Optional: install `wl-clipboard` (Wayland) or `xclip` (X11) to enable copying images, and saving copied images (off by default). Copying text works without them.
 
+**macOS**: the indexer (`gyotaku`) builds with the Xcode Command Line Tools alone, which provide the C compiler that the bundled SQLite compiles with:
+
+```sh
+xcode-select --install
+```
+
+The search window (`gyotaku-app`) additionally needs full Xcode, free from the App Store, because the UI toolkit compiles Metal shaders at build time. With only the Command Line Tools installed that build fails with `cannot execute tool 'metal'`; if a fresh Xcode still lacks it, run `xcodebuild -downloadComponent MetalToolchain` once.
+
+On an Intel mac, ONNX Runtime also has to be provided separately, since Microsoft publishes no macOS x86_64 build of it: install or build `onnxruntime` and set `ORT_DYLIB_PATH` to its library (see [Compatibility](docs/compatibility.md)). Apple Silicon needs nothing beyond Xcode; the runtime is downloaded on first use.
+
 #### 2. Install Rust
 
 gyotaku requires Rust 1.95 or newer. Install it with [rustup](https://rustup.rs) rather than your distribution's package manager, whose version is usually older:
@@ -178,7 +204,7 @@ cargo install --locked --path crates/cli     # gyotaku: the indexer and command-
 cargo install --locked --path crates/app     # gyotaku-app: the search window
 ```
 
-Both binaries are installed to `~/.cargo/bin`; use `~/.cargo/bin/gyotaku-app` for the [keyboard shortcut](#keyboard-shortcut-linux). The first build compiles the UI toolkit from source and takes several minutes. It requires about 3 GB of free disk space while running; the build directory is removed afterwards.
+Both binaries are installed to `~/.cargo/bin`; use `~/.cargo/bin/gyotaku-app` for the [keyboard shortcut](#keyboard-shortcut-linux-and-macos). The first build compiles the UI toolkit from source and takes several minutes. It requires about 3 GB of free disk space while running; the build directory is removed afterwards.
 
 To update a source build, `git pull` and run both `cargo install` commands again, then `systemctl --user restart gyotaku-watch` and `pkill -x gyotaku-app` so the new version is used. To remove it, run the uninstall command above, then `cargo uninstall gyotaku gyotaku-app`.
 

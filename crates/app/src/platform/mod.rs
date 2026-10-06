@@ -5,14 +5,14 @@
 //! below with the same signature, so porting to another one is a matter of
 //! writing that file, and the compiler lists exactly what's still missing.
 //!
-//! | | Linux | Windows |
-//! |---|---|---|
-//! | the window | a layer-shell overlay on Wayland, an ordinary window elsewhere | a borderless popup above everything |
-//! | summoning it | the desktop's own shortcut runs `gyotaku-app` | a global hotkey the app registers |
-//! | waking the running copy | a unix socket | a loopback port |
-//! | reading in the background | a systemd user service, or an XDG autostart entry | the app starts the reader, and the Run key starts the app at sign-in |
-//! | the clipboard | `wl-copy` or `xclip`, so a copy outlives the window | the system clipboard |
-//! | screenshot folders | the configs of the common tools | the Windows defaults, Game Bar, ShareX |
+//! | | Linux | Windows | macOS |
+//! |---|---|---|---|
+//! | the window | a layer-shell overlay on Wayland, an ordinary window elsewhere | a borderless popup above everything | a borderless popup above everything |
+//! | summoning it | the desktop's own shortcut runs `gyotaku-app` | a global hotkey the app registers | a global hotkey the app registers |
+//! | waking the running copy | a unix socket | a loopback port | a unix socket |
+//! | reading in the background | a systemd user service, or an XDG autostart entry | the app starts the reader, and the Run key starts the app at sign-in | a launchd agent, and the app starts the reader while it runs |
+//! | the clipboard | `wl-copy` or `xclip`, so a copy outlives the window | the system clipboard | the system pasteboard |
+//! | screenshot folders | the configs of the common tools | the Windows defaults, Game Bar, ShareX | the macOS tool defaults |
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -24,10 +24,15 @@ mod windows;
 #[cfg(windows)]
 use windows as imp;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as imp;
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 compile_error!(
-    "gyotaku runs on Linux and Windows so far. A port means adding a file next to \
-     linux.rs and windows.rs that provides the same items."
+    "gyotaku runs on Linux, Windows and macOS so far. A port means adding a file next to \
+     linux.rs, windows.rs and macos.rs that provides the same items."
 );
 
 // Staying resident between searches. Most of a cold start is the gpu getting

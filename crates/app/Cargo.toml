@@ -34,7 +34,7 @@ embed-resource = "3.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 global-hotkey = "0.8"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

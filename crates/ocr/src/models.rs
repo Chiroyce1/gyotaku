@@ -77,10 +77,14 @@ struct Runtime {
     inner: &'static str,
 }
 
-#[cfg(not(windows))]
-const RUNTIME_FILE: &str = "libonnxruntime.so.1.28.2";
 #[cfg(windows)]
 const RUNTIME_FILE: &str = "onnxruntime.dll";
+// The macOS dylib ships under its versioned name, the same convention as
+// the linux SONAME.
+#[cfg(target_os = "macos")]
+const RUNTIME_FILE: &str = "libonnxruntime.1.28.2.dylib";
+#[cfg(not(any(windows, target_os = "macos")))]
+const RUNTIME_FILE: &str = "libonnxruntime.so.1.28.2";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const RUNTIME: Option<Runtime> = Some(Runtime {
@@ -113,9 +117,20 @@ const RUNTIME: Option<Runtime> = Some(Runtime {
     inner: "onnxruntime-win-arm64-1.28.2/lib/onnxruntime.dll",
 });
 
+// Microsoft's signed Apple Silicon build, fetched on first use like the
+// Linux ones. Microsoft publishes no x86_64 macOS build (that url 404s), so
+// on those Macs RUNTIME stays None and ORT_DYLIB_PATH covers them.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const RUNTIME: Option<Runtime> = Some(Runtime {
+    url: "https://github.com/microsoft/onnxruntime/releases/download/v1.28.2/onnxruntime-osx-arm64-1.28.2.tgz",
+    sha256: "c4fceacfc53765d0869dc9180c31ec91054d149017a99d1e80ffe28dc79596de",
+    inner: "onnxruntime-osx-arm64-1.28.2/lib/libonnxruntime.1.28.2.dylib",
+});
+
 #[cfg(not(any(
     all(any(target_os = "linux", windows), target_arch = "x86_64"),
     all(any(target_os = "linux", windows), target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "aarch64"),
 )))]
 const RUNTIME: Option<Runtime> = None;
 

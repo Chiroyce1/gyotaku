@@ -1,0 +1,120 @@
+name: macos
+
+# Builds, tests and packages the macOS version: a folder with both programs
+# and ONNX Runtime beside them, so it runs without Rust or any download
+# other than the OCR models on first use.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - 'tests/**'
+      - '.github/workflows/macos.yml'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - 'tests/**'
+      - '.github/workflows/macos.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  ORT_VERSION: 1.28.2
+  ORT_SHA256: c4fceacfc53765d0869dc9180c31ec91054d149017a99d1e80ffe28dc79596de
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macos arm64
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: build
+        run: cargo build --release --locked
+      - name: test
+        run: cargo test --release --locked --workspace
+      # Microsoft's own build, checked against the same hash the app pins.
+      - name: onnx runtime
+        run: |
+          curl -sSfLo ort.tgz "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-osx-arm64-$ORT_VERSION.tgz"
+          echo "$ORT_SHA256  ort.tgz" | shasum -a 256 -c -
+          tar -xzf ort.tgz -C target/release --strip-components 2 onnxruntime-osx-arm64-$ORT_VERSION/lib/libonnxruntime.1.28.2.dylib
+      - name: read a screenshot
+        run: |
+          ./target/release/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
+      - name: package
+        run: |
+          mkdir -p dist/gyotaku
+          cp target/release/gyotaku target/release/gyotaku-app target/release/libonnxruntime.1.28.2.dylib dist/gyotaku/
+          cp LICENSE dist/gyotaku/LICENSE.txt
+          cp crates/app/fonts/OFL.txt dist/gyotaku/FONTS-OFL.txt
+          cp contrib/macos-readme.txt dist/gyotaku/README.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gyotaku-macos-arm64
+          path: dist/gyotaku
+          if-no-files-found: error
+      # Opens the real window on the runner's desktop and photographs it:
+      # the grid, a search, settings, and the summon key bringing it back.
+      # Typing goes through Accessibility, which the runner may not grant,
+      # so the search and settings shots are best effort. The knock path,
+      # what the summon key does, needs no keyboard permissions.
+      - name: open the window
+        run: |
+          shots="$PWD/tests/fixtures"
+          cfg="$HOME/Library/Application Support/gyotaku"
+          mkdir -p "$cfg"
+          printf "folders = ['%s']\ntheme = 'dark'\nthreads = 2\n" "$shots" > "$cfg/config.toml"
+          ./dist/gyotaku/gyotaku index "$shots"
+
+          ./dist/gyotaku/gyotaku-app >/tmp/gyotaku.log 2>&1 &
+          sleep 8
+          pgrep -x gyotaku-app >/dev/null || { cat /tmp/gyotaku.log; exit 1; }
+
+          mkdir shots
+          sleep 1.5
+          screencapture -x shots/1-open.png
+
+          # Typing needs Accessibility the runner may not grant.
+          osascript -e 'tell application "System Events" to keystroke "cores"' || true
+          sleep 1
+          screencapture -x shots/2-search.png || true
+          osascript -e 'tell application "System Events" to key code 43 using {control down}' || true
+          sleep 1
+          screencapture -x shots/3-settings.png || true
+
+          # The summon key does this knock, which needs no keyboard permissions.
+          sock="${TMPDIR:-/tmp/}gyotaku-$(id -u).sock"
+          printf 'toggle\n' | nc -U "$sock"
+          sleep 1
+          screencapture -x shots/4-hidden.png
+          printf 'toggle\n' | nc -U "$sock"
+          sleep 2
+          screencapture -x shots/5-summoned.png
+
+          kill $(pgrep -x gyotaku-app) || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: macos-screens
+          path: shots
+          if-no-files-found: warn

@@ -7,6 +7,7 @@ All figures on this page are measurements. None are estimates or extrapolations.
 - [Indexing](#indexing)
 - [Other scripts](#other-scripts)
 - [Search](#search)
+- [macOS on Apple Silicon](#macos-on-apple-silicon)
 - [Disk usage](#disk-usage)
 - [Measuring on your system](#measuring-on-your-system)
 
@@ -82,6 +83,21 @@ Vertical text costs nothing extra unless a screenshot has some: only boxes at le
 1 to 10 ms per keystroke across more than 5,000 screenshots, including fetching the matched lines for the visible results.
 
 Stacking [similar screenshots](usage.md#similar-screenshots) into one tile adds 0.02 ms per keystroke (median; 0.3 ms at most), and 0.7 ms when browsing all 6,863 screenshots of the test library. Grouping a library indexed before groups existed is a one-time background job of about 2.4 ms per screenshot, 17 s for that library, at idle priority.
+
+## macOS on Apple Silicon
+
+Measured on a MacBook Air M2 (8 cores, 16 GB RAM, macOS 27.0.1) while the machine was in everyday use, load average about 7.5, with the reader running at idle priority. `footprint` counts the pages the process keeps resident; `ps` RSS also counts every mapped shared page, such as AppKit, Metal and the ONNX Runtime library, which is why it reads higher than the private-memory figures in the tables above.
+
+| Metric | Result |
+|---|---|
+| Search window, fresh launch, footprint | 44 MB, of which 24 MB is the window's Metal surface |
+| Search window, resident and hidden, `ps` RSS | 106 to 113 MB |
+| Search window CPU while hidden, 60 s sample | 0%, cputime unchanged |
+| Reader `ps` RSS between screenshots | 150 MB, 177 MB right after one, falling back on its own |
+| Reader CPU between screenshots, 60 s sample | 0% |
+| Model load, warm | 59 to 110 ms |
+| `gyotaku ocr`, one screenshot with 21 lines | 560 to 711 ms, peak 163 to 170 MB |
+| Screenshot saved to searchable | 6.17 s |
 
 ## Disk usage
 

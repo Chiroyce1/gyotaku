@@ -19,6 +19,7 @@ env:
   CARGO_TERM_COLOR: always
   ORT_VERSION: 1.28.2
   ORT_WIN_SHA256: c4eedd29489d5feca21866d054638416f3655bf6b18851b3b6b85c8313e95c35
+  ORT_MAC_SHA256: c4fceacfc53765d0869dc9180c31ec91054d149017a99d1e80ffe28dc79596de
   NFPM_VERSION: 2.47.0
 
 permissions:
@@ -262,8 +263,45 @@ jobs:
             dist/*.exe*
           if-no-files-found: error
 
+  # Apple Silicon only: Microsoft publishes no ONNX Runtime build for
+  # x86_64 macs, so Intel macs need a build from source with ORT_DYLIB_PATH.
+  macos:
+    name: macos aarch64
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+      - name: build
+        run: cargo build --release --locked
+      # Microsoft's own build, checked against the same hash the app pins.
+      - name: onnx runtime
+        run: |
+          curl -sSfLo ort.tgz "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-osx-arm64-$ORT_VERSION.tgz"
+          echo "$ORT_MAC_SHA256  ort.tgz" | shasum -a 256 -c -
+          tar -xzf ort.tgz -C target/release --strip-components 2 onnxruntime-osx-arm64-$ORT_VERSION/lib/libonnxruntime.1.28.2.dylib
+      - name: read a screenshot
+        run: |
+          ./target/release/gyotaku ocr tests/fixtures/settings.png --threads 2 | tee ocr.txt
+          grep -q "cores per screenshot" ocr.txt
+      - name: package
+        run: |
+          name="gyotaku-aarch64-macos"
+          mkdir -p "dist/$name"
+          cp target/release/gyotaku target/release/gyotaku-app target/release/libonnxruntime.1.28.2.dylib "dist/$name/"
+          cp LICENSE "dist/$name/LICENSE.txt"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-aarch64
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
   publish:
-    needs: [linux, packages, windows]
+    needs: [linux, packages, windows, macos]
     if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10

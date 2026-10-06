@@ -12,15 +12,20 @@ mod linux;
 #[cfg(target_os = "linux")]
 use linux as imp;
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as imp;
+
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 use windows as imp;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!(
-    "gyotaku runs on Linux and Windows so far. A port means adding a file next to \
-     linux.rs and windows.rs that provides the same items."
+    "gyotaku runs on Linux, macOS and Windows so far. A port means adding a file next to \
+     linux.rs, macos.rs and windows.rs that provides the same items."
 );
 
 /// Drops the process to the lowest priority the system has, so reading only
