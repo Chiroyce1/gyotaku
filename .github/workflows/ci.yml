@@ -5,6 +5,16 @@ on:
   # listening to all pushes ran dependabot's branches twice.
   push:
     branches: [main]
+    # Pushes that only touch the website, docs or artwork don't start a
+    # runner at all (Vercel builds the site). Pull requests still always
+    # run, since `ci result` is a required check there and a skipped
+    # workflow would leave it waiting.
+    paths-ignore:
+      - 'site/**'
+      - 'docs/**'
+      - '**/*.md'
+      - 'assets/**'
+      - 'packaging/**'
   pull_request:
   # Rolling images (arch, tumbleweed, kali) can break the build with nothing
   # changing here, so the distro builds also run once a week regardless.
@@ -60,10 +70,12 @@ jobs:
           build=false
           # Here-strings, not pipes: with pipefail, grep -q exiting early can
           # SIGPIPE the echo and turn a match into a failure.
-          if grep -qE '^(crates/|tests/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|rustfmt\.toml$|\.github/workflows/ci\.yml$)' <<< "$files"; then
+          # contrib/windows/resource.rs is both crates' build script, and runs
+          # on Linux too.
+          if grep -qE '^(crates/|tests/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|rustfmt\.toml$|contrib/windows/resource\.rs$|\.github/workflows/ci\.yml$)' <<< "$files"; then
             code=true
           fi
-          if grep -qE '(^|/)(Cargo\.toml|build\.rs)$|^Cargo\.lock$|^rust-toolchain\.toml$|^\.github/workflows/ci\.yml$' <<< "$files"; then
+          if grep -qE '(^|/)(Cargo\.toml|build\.rs)$|^Cargo\.lock$|^rust-toolchain\.toml$|^contrib/windows/resource\.rs$|^\.github/workflows/ci\.yml$' <<< "$files"; then
             build=true
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
