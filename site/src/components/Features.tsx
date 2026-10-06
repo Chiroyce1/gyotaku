@@ -1473,7 +1473,7 @@ export function Features() {
       <section
         id="features"
         aria-labelledby="features-title"
-        className="mx-auto w-full max-w-6xl px-4 sm:px-6"
+        className="w-full"
       >
         <div className="max-w-2xl">
           <h2 id="features-title" className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-5xl">

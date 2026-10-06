@@ -11,8 +11,8 @@ export function SmoothScroll() {
       root
       options={{
         lerp: 0.12,
-        // Clears the 56px sticky header with a little air.
-        anchors: { offset: -72 },
+        // Lands each section's top divider right under the 64px header.
+        anchors: { offset: -64 },
         stopInertiaOnNavigate: true,
       }}
     />

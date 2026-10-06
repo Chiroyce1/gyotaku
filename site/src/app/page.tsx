@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { Faq } from "@/components/Faq";
+import { Row } from "@/components/Frame";
 import { Features } from "@/components/Features";
 import { GithubIcon, Header } from "@/components/Header";
 import { HeroInstall } from "@/components/HeroInstall";
@@ -47,16 +48,22 @@ function Title({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
+// Every section's content sits the same distance inside the frame's rails,
+// so left edges line up all the way down the page.
+const INSET = "px-5 sm:px-8 lg:px-12";
+// Room above and below a section's content, between two dividers.
+const SPACE = "py-20 sm:py-28";
+
 export default async function Home() {
   const saved = await stars();
 
   return (
     <>
-      <Header />
+      <Header stars={saved} />
 
       <main id="top" className="overflow-x-clip">
         {/* Hero */}
-        <section className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 pt-16 text-center sm:px-6 sm:pt-24">
+        <Row as="section" inner={`flex flex-col items-center text-center ${INSET} pt-16 pb-16 sm:pt-24 sm:pb-20`}>
           <a
             href={`${REPO}/releases/latest`}
             className="press group inline-flex h-8 items-center gap-2 rounded-full border border-line bg-panel pr-3 pl-1 text-[13px] text-dim hover:text-ink"
@@ -83,12 +90,12 @@ export default async function Home() {
           </div>
 
           <p className="mt-4 text-[13px] text-faint">macOS, Windows and Linux</p>
-        </section>
+        </Row>
 
         {/* The product, live, on Hokusai's Great Wave: a woodblock print, the
             same printmaking tradition gyotaku is named after. */}
-        <section aria-label="Try the search" className="mx-auto mt-14 w-full max-w-6xl px-3 sm:mt-16 sm:px-6">
-          <div className="relative overflow-hidden rounded-[22px] sm:rounded-[28px]">
+        <Row as="section" aria-label="Try the search" inner="px-3 pt-3 pb-4 sm:px-5 sm:pt-5 sm:pb-5">
+          <div className="relative overflow-hidden rounded-[18px] sm:rounded-[22px]">
             <Image
               src={greatWave}
               alt=""
@@ -105,19 +112,19 @@ export default async function Home() {
           <p className="mt-3 text-right text-[12px] text-faint">
             Background: <i>The Great Wave off Kanagawa</i>, Hokusai, c. 1831
           </p>
-        </section>
+        </Row>
 
-        <div className="pt-28 sm:pt-36">
+        <Row inner={`${INSET} ${SPACE}`}>
           <Features />
-        </div>
+        </Row>
 
-        <div className="pt-28 sm:pt-36">
+        <Row inner={`${INSET} ${SPACE}`}>
           <Numbers />
-        </div>
+        </Row>
 
         {/* Install */}
-        <section id="install" aria-labelledby="install-title" className="band mt-28 scroll-mt-14 py-20 sm:mt-36 sm:py-28">
-          <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
+        <Row as="section" id="install" aria-labelledby="install-title" className="band" inner={`${INSET} ${SPACE}`}>
+          <div>
             <Title id="install-title">Install in one line</Title>
             <p className="mt-3 max-w-xl text-lg leading-relaxed text-dim">
               No admin rights and no developer tools. Run it again any time to
@@ -127,10 +134,10 @@ export default async function Home() {
               <InstallTabs />
             </div>
           </div>
-        </section>
+        </Row>
 
         {/* Privacy */}
-        <section aria-labelledby="private" className="mx-auto w-full max-w-5xl px-4 pt-28 sm:px-6 sm:pt-36">
+        <Row as="section" aria-labelledby="private" inner={`${INSET} ${SPACE}`}>
           <div className="grid items-start gap-10 md:grid-cols-[1fr_1.05fr] md:gap-14">
             <div>
               <Title id="private">Nothing leaves your computer</Title>
@@ -160,13 +167,13 @@ export default async function Home() {
               </table>
             </figure>
           </div>
-        </section>
+        </Row>
 
         {/* FAQ */}
-        <section aria-labelledby="faq" className="mx-auto w-full max-w-5xl px-4 pt-28 sm:px-6 sm:pt-36">
+        <Row as="section" id="faq" aria-labelledby="faq-title" inner={`${INSET} ${SPACE}`}>
           <div className="grid gap-10 md:grid-cols-[0.8fr_1.2fr] md:gap-14">
             <div>
-              <Title id="faq">Questions</Title>
+              <Title id="faq-title">Questions</Title>
               <p className="mt-4 text-dim">
                 Something else?{" "}
                 <a href={`${REPO}/issues`} className="text-ink underline decoration-line-strong underline-offset-4 transition-[text-decoration-color] duration-150 hover:decoration-current">
@@ -177,11 +184,11 @@ export default async function Home() {
             </div>
             <Faq />
           </div>
-        </section>
+        </Row>
       </main>
 
-      <footer className="mx-auto mt-28 w-full max-w-5xl px-4 sm:mt-36 sm:px-6">
-        <div className="flex flex-col gap-8 border-t border-line py-10 text-sm text-dim sm:flex-row sm:justify-between">
+      <Row as="footer" divider={false} inner={`${INSET} pt-12 pb-16`}>
+        <div className="flex flex-col gap-8 text-sm text-dim sm:flex-row sm:justify-between">
           <div className="max-w-sm">
             <div className="flex items-center gap-2.5 font-medium text-ink">
               <Mark size={22} className="rounded-[6px]" />
@@ -213,7 +220,7 @@ export default async function Home() {
             <FooterLink href="#top">Back to top</FooterLink>
           </nav>
         </div>
-      </footer>
+      </Row>
     </>
   );
 }

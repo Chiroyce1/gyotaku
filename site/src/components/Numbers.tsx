@@ -11,7 +11,7 @@ const STATS = [
 
 export default function Numbers() {
   return (
-    <section aria-labelledby="numbers" className="mx-auto w-full max-w-5xl px-4 sm:px-6">
+    <section aria-labelledby="numbers" className="w-full">
       <h2 id="numbers" className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-5xl">
         Measured, not promised
       </h2>

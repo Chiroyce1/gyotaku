@@ -1,60 +1,195 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Mark } from "./Mark";
 import { StarCount } from "./GithubStars";
 import { ThemeToggle } from "./ThemeToggle";
+import { Row } from "./Frame";
 import { REPO, REPO_SLUG, SAVED_STARS } from "@/lib/links";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
-// Clear over the hero, then a quiet bar once the page moves under it.
-export function Header() {
-  const [scrolled, setScrolled] = useState(false);
+// The top edge of the page's frame: the same rails and corner squares as
+// every section, so the bar reads as part of the drawing, not something
+// floating over it. Opaque, so nothing shows through while scrolling.
 
+const LINKS = [
+  { href: "#features", id: "features", label: "Features" },
+  { href: "#install", id: "install", label: "Install" },
+  { href: "#faq", id: "faq", label: "FAQ" },
+  { href: `${REPO}/blob/main/docs/usage.md`, id: null, label: "Docs" },
+] as const;
+
+const ICON = { type: "spring", duration: 0.3, bounce: 0 } as const;
+
+// Which section is under the middle of the screen. One observer, a thin band
+// across the viewport's middle, so only one section can be in it at a time.
+function useActiveSection() {
+  const [active, setActive] = useState<string | null>(null);
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const els = LINKS.flatMap((l) => (l.id ? [document.getElementById(l.id)] : [])).filter(
+      (el): el is HTMLElement => el !== null,
+    );
+    const seen = new Map<string, boolean>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) seen.set(e.target.id, e.isIntersecting);
+        setActive(els.find((el) => seen.get(el.id))?.id ?? null);
+      },
+      { rootMargin: "-45% 0px -50% 0px" },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
   }, []);
+  return active;
+}
+
+export function Header({ stars = SAVED_STARS }: { stars?: number }) {
+  const active = useActiveSection();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+
+  // Escape closes the menu and gives focus back to the button; growing past
+  // the phone layout closes it too, so it never lingers off-screen.
+  useEffect(() => {
+    if (!open) return;
+    sheet.current?.querySelector<HTMLElement>("a")?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        button.current?.focus();
+      }
+    };
+    const wide = matchMedia("(min-width: 768px)");
+    const onWide = () => wide.matches && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    wide.addEventListener("change", onWide);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      wide.removeEventListener("change", onWide);
+    };
+  }, [open]);
+
+  const swap = reduce
+    ? { initial: false as const, animate: { opacity: 1 }, exit: { opacity: 0 } }
+    : {
+        initial: { opacity: 0, scale: 0.25, filter: "blur(4px)" },
+        animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+        exit: { opacity: 0, scale: 0.25, filter: "blur(4px)" },
+      };
 
   return (
-    <header
-      data-scrolled={scrolled}
-      className="sticky top-0 z-40 border-b border-transparent transition-[background-color,border-color] duration-200 ease-out data-[scrolled=true]:border-line data-[scrolled=true]:bg-bg/80 data-[scrolled=true]:backdrop-blur-md"
-    >
-      <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
+    <Row as="header" className="sticky top-0 z-40 bg-bg">
+      <div className="grid h-16 grid-cols-[1fr_auto] items-center px-4 sm:px-6 md:grid-cols-[1fr_auto_1fr]">
         <a
           href="#top"
-          className="press -mx-1.5 flex items-center gap-2.5 rounded-lg px-1.5 py-1 font-medium tracking-tight text-ink"
+          onClick={() => setOpen(false)}
+          className="press -mx-1.5 flex items-center gap-2.5 justify-self-start rounded-lg px-1.5 py-1 text-[15px] font-semibold tracking-[-0.01em] text-ink"
         >
           <Mark size={24} className="rounded-[6px]" />
           gyotaku
         </a>
-        <nav className="flex items-center gap-0.5 text-sm text-dim">
-          <a
-            href="#install"
-            className="hidden h-9 items-center rounded-lg px-2.5 transition-colors duration-150 hover:text-ink sm:flex"
-          >
-            install
-          </a>
-          <a
-            href={`${REPO}/blob/main/docs/usage.md`}
-            className="hidden h-9 items-center rounded-lg px-2.5 transition-colors duration-150 hover:text-ink sm:flex"
-          >
-            docs
-          </a>
+
+        <nav aria-label="Sections" className="hidden items-center gap-1 text-[14px] md:flex">
+          {LINKS.map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              aria-current={l.id && active === l.id ? "true" : undefined}
+              className="rounded-lg px-3 py-1.5 text-dim transition-colors duration-150 hover:text-ink aria-[current=true]:text-ink"
+            >
+              {l.label}
+            </a>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-1 justify-self-end">
           <a
             href={REPO}
-            className="press flex h-9 items-center gap-1.5 rounded-lg px-2.5 hover:text-ink"
+            className="press hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-[14px] text-dim hover:text-ink sm:flex"
           >
             <GithubIcon />
             <span className="sr-only">gyotaku on GitHub, stars:</span>
-            <StarCount repo={REPO_SLUG} saved={SAVED_STARS} />
+            <StarCount repo={REPO_SLUG} saved={stars} />
           </a>
           <ThemeToggle />
+          <a
+            href="#install"
+            className="press ml-1.5 hidden h-9 items-center rounded-[10px] bg-ink px-4 text-[14px] font-medium text-bg sm:flex"
+          >
+            Install
+          </a>
+          <button
+            ref={button}
+            type="button"
+            aria-expanded={open}
+            aria-controls="site-menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            onClick={() => setOpen((o) => !o)}
+            className="press relative flex size-9 items-center justify-center rounded-lg text-ink md:hidden"
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              <motion.svg
+                key={open ? "close" : "menu"}
+                {...swap}
+                transition={ICON}
+                viewBox="0 0 16 16"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                aria-hidden
+              >
+                {open ? <path d="M4 4l8 8M12 4l-8 8" /> : <path d="M2.5 5.5h11M2.5 10.5h11" />}
+              </motion.svg>
+            </AnimatePresence>
+          </button>
+        </div>
+      </div>
+
+      {/* The phone menu: unrolls downward from the header's bottom line,
+          inside the same frame. Kept mounted and inert while closed, so it
+          can animate both ways and never takes focus when hidden. */}
+      <div
+        id="site-menu"
+        ref={sheet}
+        data-open={open}
+        inert={!open}
+        className="site-menu absolute inset-x-0 top-full border-b border-line bg-bg px-3 sm:px-6 md:hidden"
+      >
+        <nav aria-label="Menu" className="mx-auto flex max-w-6xl flex-col border-x border-line px-4 pt-2 pb-5">
+          {LINKS.map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              onClick={() => setOpen(false)}
+              className="flex h-12 items-center border-b border-line text-[17px] text-ink transition-colors duration-150 last:border-b-0"
+            >
+              {l.label}
+            </a>
+          ))}
+          <div className="mt-4 flex items-center gap-2">
+            <a
+              href="#install"
+              onClick={() => setOpen(false)}
+              className="press flex h-11 flex-1 items-center justify-center rounded-[12px] bg-ink text-[15px] font-medium text-bg"
+            >
+              Install gyotaku
+            </a>
+            <a
+              href={REPO}
+              className="press flex h-11 items-center gap-2 rounded-[12px] border border-line px-4 text-[15px] text-ink"
+            >
+              <GithubIcon />
+              <StarCount repo={REPO_SLUG} saved={stars} />
+            </a>
+          </div>
         </nav>
       </div>
-    </header>
+    </Row>
   );
 }
 
