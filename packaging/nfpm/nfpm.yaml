@@ -1,0 +1,109 @@
+# The .deb and .rpm, built by nfpm from the binaries `cargo build --release`
+# left in target/release. Run from the repository root:
+#
+#   GYOTAKU_VERSION=0.1.2 GYOTAKU_ARCH=amd64 \
+#     nfpm package -f packaging/nfpm/nfpm.yaml -p deb -t dist/
+#
+# GYOTAKU_ARCH is Go's name for it (amd64, arm64); nfpm turns that into
+# amd64/x86_64 or arm64/aarch64 for each format.
+name: gyotaku
+version: ${GYOTAKU_VERSION}
+arch: ${GYOTAKU_ARCH}
+platform: linux
+section: utils
+priority: optional
+maintainer: Yash Bavadiya <krbavadiya11@gmail.com>
+description: |-
+  Search your screenshots by the text in them.
+  gyotaku reads the text in every screenshot you take and makes it
+  searchable from a window you summon with a shortcut. Everything happens
+  on your machine.
+vendor: gyotaku
+homepage: https://github.com/xevrion/gyotaku
+license: GPL-3.0-or-later
+
+contents:
+  - src: target/release/gyotaku
+    dst: /usr/bin/gyotaku
+    file_info:
+      mode: 0755
+  - src: target/release/gyotaku-app
+    dst: /usr/bin/gyotaku-app
+    file_info:
+      mode: 0755
+  - src: packaging/linux/dev.xevrion.gyotaku.desktop
+    dst: /usr/share/applications/dev.xevrion.gyotaku.desktop
+  - src: packaging/linux/dev.xevrion.gyotaku.metainfo.xml
+    dst: /usr/share/metainfo/dev.xevrion.gyotaku.metainfo.xml
+  # One by one, so the package owns its icons and not the hicolor folders,
+  # which belong to the icon theme.
+  - src: packaging/linux/icons/hicolor/16x16/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/16x16/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/24x24/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/24x24/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/32x32/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/32x32/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/48x48/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/48x48/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/64x64/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/64x64/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/128x128/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/128x128/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/256x256/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/256x256/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/512x512/apps/dev.xevrion.gyotaku.png
+    dst: /usr/share/icons/hicolor/512x512/apps/dev.xevrion.gyotaku.png
+  - src: packaging/linux/icons/hicolor/scalable/apps/dev.xevrion.gyotaku.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/dev.xevrion.gyotaku.svg
+  - src: LICENSE
+    dst: /usr/share/licenses/gyotaku/LICENSE
+    packager: rpm
+  - src: LICENSE
+    dst: /usr/share/doc/gyotaku/copyright
+    packager: deb
+
+scripts:
+  postinstall: packaging/nfpm/postinstall.sh
+
+# The window opens through Vulkan, or EGL where there's no Vulkan, and
+# speaks Wayland or X11, all loaded at runtime, so those are recommended
+# rather than required: a headless box can still run `gyotaku watch`.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libxcb1
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+    recommends:
+      - libvulkan1
+      - libegl1
+      - libwayland-client0
+      - libwayland-egl1
+    suggests:
+      - wl-clipboard
+  # By library rather than package name, the way rpmbuild writes them, so
+  # the same .rpm resolves on Fedora and openSUSE, whose names differ.
+  rpm:
+    depends:
+      - libc.so.6(GLIBC_2.35)(64bit)
+      - libxcb.so.1()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - libxkbcommon-x11.so.0()(64bit)
+    recommends:
+      - libvulkan.so.1()(64bit)
+      - libEGL.so.1()(64bit)
+      - libwayland-client.so.0()(64bit)
+      - libwayland-egl.so.1()(64bit)
+    suggests:
+      - wl-clipboard
+
+rpm:
+  summary: Search your screenshots by the text in them
+  group: Applications/Productivity
+  compression: zstd
+
+# xz rather than zstd for the .deb: older dpkg can't read zstd.
+deb:
+  compression: xz

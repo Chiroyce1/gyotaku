@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=gyotaku
+GenericName=Screenshot Search
+Comment=Search your screenshots by the text in them. Bind a key to gyotaku-app to open it from anywhere
+Exec=gyotaku-app
+Icon=dev.xevrion.gyotaku
+Terminal=false
+Categories=Utility;
+Keywords=screenshot;search;ocr;text;find;
+StartupWMClass=gyotaku
+SingleMainWindow=true

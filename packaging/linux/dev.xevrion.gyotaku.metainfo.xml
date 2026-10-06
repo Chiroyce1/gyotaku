@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.xevrion.gyotaku</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>gyotaku</name>
+  <summary>Search your screenshots by the text in them</summary>
+  <developer id="dev.xevrion">
+    <name>Yash Bavadiya</name>
+  </developer>
+  <description>
+    <p>
+      gyotaku reads the text in every screenshot you take and makes it
+      searchable. Press a shortcut, type a few letters of anything you
+      remember seeing, and every matching screenshot appears with the matched
+      words highlighted in place. Open one to copy its text, a selection of
+      lines, or the image itself.
+    </p>
+    <p>
+      Everything happens on your machine. There are no accounts and no
+      telemetry, and it runs fast with or without a GPU.
+    </p>
+    <ul>
+      <li>1 to 10 ms per keystroke across 5,000+ screenshots</li>
+      <li>A new screenshot is searchable within a second of being saved</li>
+      <li>Move results to the trash in bulk, with undo</li>
+      <li>Every keyboard shortcut can be rebound</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">dev.xevrion.gyotaku.desktop</launchable>
+  <provides>
+    <binary>gyotaku</binary>
+    <binary>gyotaku-app</binary>
+  </provides>
+  <url type="homepage">https://github.com/xevrion/gyotaku</url>
+  <url type="bugtracker">https://github.com/xevrion/gyotaku/issues</url>
+  <url type="vcs-browser">https://github.com/xevrion/gyotaku</url>
+  <url type="contribute">https://github.com/xevrion/gyotaku/blob/main/CONTRIBUTING.md</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/xevrion/gyotaku/main/docs/banner.png</image>
+      <caption>Searching screenshots for a word</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#f6f6f4</color>
+    <color type="primary" scheme_preference="dark">#141416</color>
+  </branding>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>screenshot</keyword>
+    <keyword>ocr</keyword>
+    <keyword>search</keyword>
+  </keywords>
+  <releases>
+    <release version="0.1.2" date="2026-10-05"/>
+    <release version="0.1.1" date="2026-10-05"/>
+    <release version="0.1.0" date="2026-10-05"/>
+  </releases>
+</component>
