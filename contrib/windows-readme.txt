@@ -33,8 +33,9 @@ everything happens on this computer, nothing is uploaded.
 Windows may warn that the app is from an unknown publisher, since it isn't
 signed yet. Choose "More info" and then "Run anyway".
 
-To remove it: turn off background reading in settings (Ctrl+,), quit
-(Ctrl+Q), and delete the folder. The index lives in
-%LOCALAPPDATA%\gyotaku and %APPDATA%\gyotaku.
+To remove it: installed with the setup, uninstall it from Settings, Apps.
+Otherwise turn off background reading in settings (Ctrl+,), quit (Ctrl+Q),
+and delete the folder. The index lives in %LOCALAPPDATA%\gyotaku and
+%APPDATA%\gyotaku.
 
 Problems and ideas: https://github.com/xevrion/gyotaku/issues

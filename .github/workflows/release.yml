@@ -244,10 +244,22 @@ jobs:
           cp contrib/windows-readme.txt "dist/$name/README.txt"
           (cd "dist/$name" && 7z a -tzip "../$name.zip" . > /dev/null)
           (cd dist && sha256sum "$name.zip" > "$name.zip.sha256")
+      # The same files as a setup exe, with a Start menu entry and an
+      # uninstaller in Apps, tried before it's published.
+      - name: setup
+        shell: pwsh
+        run: contrib\windows\build-setup.ps1 dist\gyotaku-x86_64-windows
+      - name: test the setup
+        shell: pwsh
+        run: contrib\windows\test-setup.ps1 dist\gyotaku-setup-x86_64.exe
+      - name: setup checksum
+        run: (cd dist && sha256sum gyotaku-setup-x86_64.exe > gyotaku-setup-x86_64.exe.sha256)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-x86_64
-          path: dist/*.zip*
+          path: |
+            dist/*.zip*
+            dist/*.exe*
           if-no-files-found: error
 
   publish:

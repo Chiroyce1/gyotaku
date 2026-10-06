@@ -2603,6 +2603,7 @@ dependencies = [
  "anyhow",
  "clap",
  "directories",
+ "embed-resource",
  "fast_image_resize",
  "gyotaku-core",
  "gyotaku-ocr",
@@ -2620,6 +2621,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "directories",
+ "embed-resource",
  "env_logger",
  "futures",
  "global-hotkey",

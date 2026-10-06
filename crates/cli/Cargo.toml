@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+build = "../../contrib/windows/resource.rs"
 
 [dependencies]
 gyotaku-core.workspace = true
@@ -16,6 +17,9 @@ fast_image_resize = { version = "5", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
 jiff = "0.2"
 notify = "8"
+
+[build-dependencies]
+embed-resource = "3.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

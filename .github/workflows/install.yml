@@ -1,6 +1,6 @@
 name: install
 
-# Runs both installers the way a new user would, against the published
+# Runs the installers the way a new user would, against the published
 # release: install, read a real screenshot with what got installed (which
 # also covers the first-run downloads), install again as an update, then
 # uninstall. Runs after every release, weekly, and when an installer changes.
@@ -10,6 +10,7 @@ on:
     paths:
       - 'install.sh'
       - 'install.ps1'
+      - 'contrib/windows/test-setup.ps1'
       - '.github/workflows/install.yml'
   schedule:
     - cron: '41 4 * * 1'
@@ -103,3 +104,36 @@ jobs:
           $env:GYOTAKU_UNINSTALL = 1
           ./install.ps1
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\gyotaku')) { throw 'the install folder is still there' }
+
+  windows-setup:
+    name: windows setup
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: download
+        id: download
+        run: |
+          $base = 'https://github.com/xevrion/gyotaku/releases/latest/download'
+          $ProgressPreference = 'SilentlyContinue'
+          try {
+            Invoke-WebRequest -UseBasicParsing "$base/gyotaku-setup-x86_64.exe" -OutFile gyotaku-setup-x86_64.exe
+            Invoke-WebRequest -UseBasicParsing "$base/gyotaku-setup-x86_64.exe.sha256" -OutFile setup.sha256
+          } catch {
+            # Releases before 0.1.3 have no setup exe.
+            '::warning::the latest release has no setup exe'
+            'skip=true' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $expected = ((Get-Content -Raw setup.sha256).Trim() -split '\s+')[0]
+          if ((Get-FileHash -Algorithm SHA256 gyotaku-setup-x86_64.exe).Hash -ne $expected.ToUpper()) {
+            throw 'the setup does not match its checksum'
+          }
+      - name: install, update and uninstall
+        if: steps.download.outputs.skip != 'true'
+        run: contrib\windows\test-setup.ps1 gyotaku-setup-x86_64.exe

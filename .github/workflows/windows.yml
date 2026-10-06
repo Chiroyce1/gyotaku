@@ -13,6 +13,8 @@ on:
       - 'rust-toolchain.toml'
       - '.cargo/**'
       - 'tests/**'
+      - 'contrib/windows/**'
+      - 'assets/gyotaku.ico'
       - '.github/workflows/windows.yml'
   pull_request:
     paths:
@@ -22,6 +24,8 @@ on:
       - 'rust-toolchain.toml'
       - '.cargo/**'
       - 'tests/**'
+      - 'contrib/windows/**'
+      - 'assets/gyotaku.ico'
       - '.github/workflows/windows.yml'
   workflow_dispatch:
 
@@ -152,6 +156,19 @@ jobs:
           name: windows-screens
           path: shots
           if-no-files-found: warn
+      # The setup exe, from the same files: installed, updated over a running
+      # gyotaku and uninstalled.
+      - name: setup
+        shell: pwsh
+        run: contrib\windows\build-setup.ps1 dist\gyotaku
+      - name: test the setup
+        shell: pwsh
+        run: contrib\windows\test-setup.ps1 dist\gyotaku-setup-x86_64.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gyotaku-setup-x86_64
+          path: dist/gyotaku-setup-x86_64.exe
+          if-no-files-found: error
 
 # Test builds for trying a change on a Windows machine are made locally with
 # contrib/windows-dev.sh, in about a minute, and published from there.

@@ -73,6 +73,8 @@ irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
 
 This installs to `%LOCALAPPDATA%\Programs\gyotaku`, adds gyotaku to the Start menu and opens it. Press **Alt+Shift+S** anywhere to open or close the search window. No administrator rights are needed. Windows 10 and 11 on x64 are supported; ARM64 runs the x64 build through emulation.
 
+If you prefer a regular installer, download [`gyotaku-setup-x86_64.exe`](https://github.com/xevrion/gyotaku/releases/latest/download/gyotaku-setup-x86_64.exe) from the latest release and run it. It installs the same files to the same folder, also without administrator rights, and lists gyotaku in Settings > Apps so it can be uninstalled from there. The setup is not code-signed yet, so SmartScreen may warn about an unknown publisher; choose **More info** and then **Run anyway**. The setup and the PowerShell command update each other's installs.
+
 ### macOS
 
 Not supported yet. It is on the [roadmap](#roadmap).
@@ -105,7 +107,7 @@ Before the first screenshot is read, gyotaku downloads the OCR models once (22 M
 
 ### Updating
 
-Run the install command again. It replaces the programs and restarts the background indexer; the index, settings and thumbnails are kept.
+Run the install command again, or on Windows the newest setup. It replaces the programs and restarts the background indexer; the index, settings and thumbnails are kept.
 
 ### Uninstalling
 
@@ -121,7 +123,9 @@ Windows, in PowerShell:
 $env:GYOTAKU_UNINSTALL = 1; irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex
 ```
 
-Both stop the background indexer and remove the programs, and print how to also remove the index and settings. Remove the keyboard shortcut yourself. gyotaku never modifies or deletes your screenshots unless you move them to the trash yourself.
+Installed with the setup, gyotaku can also be uninstalled from Settings > Apps, which asks whether to delete the index and settings too.
+
+Both commands stop the background indexer and remove the programs, and print how to also remove the index and settings. Remove the keyboard shortcut yourself. gyotaku never modifies or deletes your screenshots unless you move them to the trash yourself.
 
 ### Build from source
 
@@ -210,7 +214,8 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 
 - [x] Move screenshots to the trash in bulk: search, mark the results, move them to the system trash, with undo
 - [x] Simple installation on every supported OS: prebuilt releases and a one-command install, no Rust toolchain needed
-- [ ] Native installers: a Windows setup `.exe` (Start menu entry, uninstall from Apps and features) and a macOS `.dmg` with a signed, notarized app
+- [x] A Windows setup `.exe`: Start menu entry, uninstall from Apps and features
+- [ ] A macOS `.dmg` with a signed, notarized app
 - [ ] Linux packages for every family, each a separate piece of the release pipeline: Flatpak on Flathub, the AUR, a Fedora COPR, an apt repository for Debian and Ubuntu, and openSUSE's OBS
 - [ ] A landing page with a demo, the measured numbers and the install commands
 - [x] Windows support

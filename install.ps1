@@ -17,6 +17,9 @@ $Repo = 'xevrion/gyotaku'
 $Dir = Join-Path $env:LOCALAPPDATA 'Programs\gyotaku'
 $Shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'gyotaku.lnk'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+# Where the setup exe lists gyotaku in Apps. It installs into the same
+# folder, so this script and the setup update each other's installs.
+$AppsKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\gyotaku_is1'
 
 function Stop-Gyotaku {
     Get-Process -Name 'gyotaku-app', 'gyotaku' -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -28,6 +31,12 @@ if ($env:GYOTAKU_UNINSTALL) {
     Remove-Item Env:\GYOTAKU_UNINSTALL
     Write-Host 'Removing gyotaku' -ForegroundColor White
     Stop-Gyotaku
+    # Installed or updated by the setup exe: its uninstaller also takes the
+    # entry out of Apps.
+    $uninstaller = Join-Path $Dir 'unins000.exe'
+    if (Test-Path $uninstaller) {
+        Start-Process -Wait -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+    }
     Remove-ItemProperty -Path $RunKey -Name 'gyotaku' -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $Dir -ErrorAction SilentlyContinue
     Remove-Item -Force $Shortcut -ErrorAction SilentlyContinue
@@ -96,6 +105,10 @@ try {
     # so it's pointed at this copy.
     if (Get-ItemProperty -Path $RunKey -Name 'gyotaku' -ErrorAction SilentlyContinue) {
         Set-ItemProperty -Path $RunKey -Name 'gyotaku' -Value "`"$app`" --background"
+    }
+    if (Test-Path $AppsKey) {
+        $version = (Get-Item $app).VersionInfo.ProductVersion
+        if ($version) { Set-ItemProperty -Path $AppsKey -Name 'DisplayVersion' -Value $version }
     }
 
     Start-Process -FilePath $app
