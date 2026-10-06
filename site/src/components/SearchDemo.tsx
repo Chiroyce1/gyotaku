@@ -85,9 +85,13 @@ function Line({
           ...fade("opacity, scale"),
           opacity: lit ? 1 : 0,
           scale: lit ? 1 : 0.96,
+          // A highlighter stroke: shu tint over the screenshot's own paper,
+          // with a hairline edge. Dashed for a near match: found, but not
+          // the text as it was read.
           background: "linear-gradient(var(--shu-soft), var(--shu-soft)), var(--tile)",
-          // A near match is drawn dashed: found, but not the text as read.
-          outline: hit === "near" ? "1.5px dashed var(--shu)" : "1.5px solid var(--shu)",
+          boxShadow: hit === "near" ? "none" : "inset 0 0 0 1px var(--shu)",
+          outline: hit === "near" ? "1px dashed var(--shu)" : "none",
+          outlineOffset: "-1px",
         }}
       />
       {children ?? text}
@@ -407,36 +411,32 @@ function Qr() {
   );
 }
 
+// A match stays exactly as bright as it was, ringed in shu with its line
+// highlighted. Everything else recedes: faded and drained of color, so the
+// eye lands on the one that's lit. Nothing is ever veiled grey.
 function Tile({ shot, q }: { shot: Shot; q: string }) {
   const hit = q !== "" && shot.lines.some((l) => hitOf(l, q) !== null);
-  const inked = q !== "" && !hit;
+  const recede = q !== "" && !hit;
   return (
     <LinesContext.Provider value={shot.lines}>
       <div
         role="img"
         aria-label={`Screenshot of ${shot.name}${hit ? ", matches" : ""}`}
         className="relative aspect-[4/3] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)] motion-reduce:transition-none"
-        style={{ ...surface(shot.bg), ...fade("scale"), scale: inked ? 0.985 : 1 }}
+        style={{
+          ...surface(shot.bg),
+          ...fade("opacity, filter, scale, box-shadow"),
+          opacity: recede ? 0.32 : 1,
+          filter: recede ? "grayscale(1)" : "grayscale(0)",
+          scale: recede ? 0.985 : 1,
+          // The ring sits just outside the tile, with a sliver of window
+          // between, so it reads as a selection and not a border.
+          boxShadow: hit
+            ? "0 0 0 2px var(--panel), 0 0 0 3.5px var(--shu)"
+            : "0 0 0 2px transparent, 0 0 0 3.5px transparent",
+        }}
       >
         <shot.View />
-        {/* The veil over a match, under its lit line. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-[5] bg-[#0b0b0c]/60 motion-reduce:transition-none"
-          style={{ ...fade("opacity"), opacity: hit ? 1 : 0 }}
-        />
-        {/* Everything without the word sinks into the window: near black in
-            the dark theme, paper in the light one, so only matches stand. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-20 bg-panel motion-reduce:transition-none"
-          style={{ ...fade("opacity"), opacity: inked ? 0.9 : 0 }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-20 rounded-[6px] shadow-[inset_0_0_0_1.5px_var(--shu)] motion-reduce:transition-none"
-          style={{ ...fade("opacity"), opacity: hit ? 1 : 0 }}
-        />
       </div>
     </LinesContext.Provider>
   );
@@ -459,7 +459,10 @@ function SearchIcon() {
   );
 }
 
-export default function SearchDemo() {
+// `onWallpaper`: the window sits on a busy picture (the hero's print), so it
+// takes a deeper, crisper shadow and the chips under it turn to glass to
+// stay readable over the image.
+export default function SearchDemo({ onWallpaper = false }: { onWallpaper?: boolean }) {
   const [query, setQuery] = useState("");
   const [stopped, setStopped] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -547,7 +550,13 @@ export default function SearchDemo() {
 
   return (
     <div ref={root} className="w-full">
-      <div className="overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow)]">
+      <div
+        className={`overflow-hidden rounded-2xl bg-panel ${
+          onWallpaper
+            ? "shadow-[0_30px_80px_-20px_rgb(0_0_0/0.55),0_0_0_1px_rgb(255_255_255/0.08)]"
+            : "shadow-[var(--shadow)]"
+        }`}
+      >
         <label className="flex h-12 items-center gap-3 border-b border-line px-4">
           <SearchIcon />
           <input
@@ -604,20 +613,26 @@ export default function SearchDemo() {
       {/* One row that slides sideways on a phone instead of wrapping a lone
           chip onto a second line. */}
       <div className="-mx-4 mt-5 flex items-center gap-2 overflow-x-auto px-4 [mask-image:linear-gradient(to_right,transparent,black_16px,black_calc(100%-16px),transparent)] [scrollbar-width:none] sm:mx-0 sm:justify-center sm:overflow-visible sm:px-0 sm:[mask-image:none] [&::-webkit-scrollbar]:hidden">
-        <span className="mr-1 shrink-0 text-[13px] text-dim">try</span>
+        {/* On the wallpaper the label is dropped: the solid chips say it. */}
+        {!onWallpaper && <span className="mr-1 shrink-0 text-[13px] text-dim">try</span>}
         {CHIPS.map((chip) => {
           const on = stopped && q === chip;
+          // On the wallpaper, solid and opaque so they read over any part of
+          // the picture, never see-through.
+          const look = onWallpaper
+            ? on
+              ? "border-transparent bg-shu text-[var(--on-shu)]"
+              : "border-white/10 bg-[#111113] text-white/85 hover:text-white"
+            : on
+              ? "border-[color-mix(in_oklab,var(--shu)_45%,transparent)] bg-shu-soft text-shu"
+              : "border-line text-dim hover:text-ink";
           return (
             <button
               key={chip}
               type="button"
               onClick={() => choose(chip)}
               aria-pressed={on}
-              className={`press h-8 shrink-0 rounded-full border px-3 text-[13px] ${
-                on
-                  ? "border-[color-mix(in_oklab,var(--shu)_45%,transparent)] bg-shu-soft text-shu"
-                  : "border-line text-dim hover:text-ink"
-              }`}
+              className={`press h-8 shrink-0 rounded-full border px-3 text-[13px] ${look}`}
               style={{
                 transition:
                   "scale 160ms var(--ease-out), color 150ms ease, border-color 150ms ease, background-color 150ms ease",

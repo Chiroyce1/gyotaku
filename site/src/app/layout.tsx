@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import { JsonLd } from "@/components/JsonLd";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -7,16 +7,18 @@ import { themeScript } from "@/components/ThemeToggle";
 import { AUTHOR_URL, DESCRIPTION, SITE_URL, TITLE } from "@/lib/site";
 import "./globals.css";
 
-const sans = IBM_Plex_Sans({
-  variable: "--font-plex-sans",
+// Inter for everything, with its optical size axis so the big headlines get
+// the tighter display cut and body text the roomier text cut. Geist Mono for
+// commands.
+const sans = Inter({
+  variable: "--font-sans-face",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  axes: ["opsz"],
 });
 
-const mono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
+const mono = Geist_Mono({
+  variable: "--font-mono-face",
   subsets: ["latin"],
-  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -43,12 +45,12 @@ export const metadata: Metadata = {
     url: "/",
     siteName: "gyotaku",
     locale: "en_US",
-    title: "gyotaku: ctrl f for your screenshots",
+    title: "gyotaku: Ctrl F for your screenshots",
     description: DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: "gyotaku: ctrl f for your screenshots",
+    title: "gyotaku: Ctrl F for your screenshots",
     description: DESCRIPTION,
   },
   robots: {
@@ -68,8 +70,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f6f4" },
-    { media: "(prefers-color-scheme: dark)", color: "#0e0e10" },
+    { media: "(prefers-color-scheme: light)", color: "#fafaf9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0b" },
   ],
 };
 

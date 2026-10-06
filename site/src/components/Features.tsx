@@ -15,9 +15,11 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, MotionConfig, motion, useInView } from "motion/react";
+import Image, { type StaticImageData } from "next/image";
 import { Noto_Sans_Devanagari } from "next/font/google";
-import { Reveal } from "./Reveal";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
+import redFuji from "@/assets/prints/red-fuji.jpg";
+import suddenShower from "@/assets/prints/sudden-shower.jpg";
 
 // Only this card needs it, so it never blocks the first paint.
 const devanagari = Noto_Sans_Devanagari({
@@ -31,14 +33,6 @@ const SPRING = { type: "spring", duration: 0.3, bounce: 0 } as const;
 const ICON_IN = { scale: 1, opacity: 1, filter: "blur(0px)" };
 const ICON_OUT = { scale: 0.25, opacity: 0, filter: "blur(4px)" };
 
-type Ink = "shu" | "ai" | "kihada" | "matsu";
-const INK_BG: Record<Ink, string> = {
-  shu: "bg-shu",
-  ai: "bg-ai",
-  kihada: "bg-kihada",
-  matsu: "bg-matsu",
-};
-
 // Screenshots inside the demos keep their own colors in both themes, like a
 // real screenshot would.
 const PAPER = "#ffffff";
@@ -49,57 +43,105 @@ const PAPER_DIM = "#6e6e73";
 /* Shared pieces                                                       */
 /* ------------------------------------------------------------------ */
 
+// One surface per card: the demo is a region of the card itself, divided
+// from the words by a hairline, not a second box sunk inside it. No entrance
+// animation; motion is kept for what the visitor does inside.
 function Card({
-  ink,
   title,
   body,
   wide,
   height = 244,
-  delay = 0,
   children,
 }: {
-  ink: Ink;
   title: string;
   body: ReactNode;
   wide?: boolean;
   height?: number;
-  delay?: number;
   children: ReactNode;
 }) {
-  const [touched, setTouched] = useState(false);
-  const touch = () => setTouched(true);
   return (
-    <Reveal
-      as="li"
-      delay={delay}
-      className={`flex flex-col rounded-2xl bg-panel p-1.5 shadow-[var(--shadow)] ${wide ? "md:col-span-2" : ""}`}
+    <li
+      className={`flex flex-col overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow)] ${wide ? "sm:col-span-2" : ""}`}
     >
-      {/* Radius 10 inside the card's 16, across its 6px of padding. */}
-      <div
-        className="relative overflow-hidden rounded-[10px] bg-sunk"
-        style={{ height }}
-        onPointerDownCapture={touch}
-        onKeyDownCapture={touch}
-        onFocusCapture={touch}
-      >
+      <div className="relative overflow-hidden border-b border-line" style={{ height }}>
         {children}
       </div>
-      <div className="flex flex-col gap-1.5 px-4 pt-4 pb-5">
-        <h3 className="flex items-start gap-2.5 font-medium text-ink">
-          <span aria-hidden className={`mt-2 size-2 shrink-0 rounded-full ${INK_BG[ink]}`} />
-          {title}
-          <span
-            aria-hidden
-            className="ml-auto flex shrink-0 items-center gap-1 self-start pt-1 text-[12px] font-normal whitespace-nowrap text-faint transition-opacity duration-200"
-            style={{ opacity: touched ? 0 : 1 }}
-          >
-            <PointerIcon />
-            try it
-          </span>
-        </h3>
-        <p className="text-[15px] leading-relaxed text-dim">{body}</p>
+      <div className="flex flex-col gap-1 px-5 pt-4 pb-5">
+        <h3 className="text-[16px] font-medium text-ink">{title}</h3>
+        <p className="text-[14.5px] leading-relaxed text-dim">{body}</p>
       </div>
-    </Reveal>
+    </li>
+  );
+}
+
+// The big rows: the feature running live in an app window, floating on a
+// woodblock print the way the hero's search floats on the Great Wave, with a
+// short title and two plain lines beside it.
+function Showcase({
+  print,
+  crop,
+  credit,
+  title,
+  body,
+  hint,
+  flip,
+  height,
+  zoom = 1,
+  children,
+}: {
+  print: StaticImageData;
+  // Which part of the print shows: how far it's enlarged, and around where.
+  crop: { scale: number; origin: string };
+  credit: ReactNode;
+  title: string;
+  body: ReactNode;
+  hint?: ReactNode;
+  flip?: boolean;
+  height: number;
+  // Small demos are drawn larger here, so they fill the window like the
+  // real app would; pointer math stays right because zoom scales layout.
+  zoom?: number;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`grid items-center gap-8 md:gap-14 ${
+        flip
+          ? "md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]"
+          : "md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
+      }`}
+    >
+      <div className={`max-w-md ${flip ? "md:order-2" : ""}`}>
+        <h3 className="font-display text-[1.75rem] leading-[1.12] text-ink sm:text-[2.1rem]">{title}</h3>
+        <p className="mt-3 text-[17px] leading-relaxed text-dim">{body}</p>
+        {hint && <p className="mt-4 text-[13px] text-faint">{hint}</p>}
+      </div>
+      <figure className={flip ? "md:order-1" : ""}>
+        <div className="relative overflow-hidden rounded-[22px] sm:rounded-[28px]">
+          <Image
+            src={print}
+            alt=""
+            fill
+            placeholder="blur"
+            sizes="(min-width: 1024px) 600px, 100vw"
+            className="object-cover"
+            style={{ scale: crop.scale, transformOrigin: crop.origin }}
+          />
+          <div className="relative p-4 sm:p-9">
+            <div
+              className="relative overflow-hidden rounded-xl bg-panel"
+              style={{
+                height,
+                boxShadow: "0 30px 80px -20px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.08)",
+              }}
+            >
+              <div style={{ zoom, height: height / zoom }}>{children}</div>
+            </div>
+          </div>
+        </div>
+        <figcaption className="mt-3 text-right text-[12px] text-faint">Background: {credit}</figcaption>
+      </figure>
+    </div>
   );
 }
 
@@ -192,14 +234,6 @@ function CheckIcon({ className = "size-3.5" }: { className?: string }) {
   );
 }
 
-function PointerIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.25} strokeLinejoin="round" aria-hidden className="size-3">
-      <path d="M4 2.5v9.25l2.4-2.1 1.7 3.85 1.6-.7-1.7-3.8 3.25-.3Z" />
-    </svg>
-  );
-}
-
 function FolderIcon({ className = "size-3.5" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" aria-hidden className={`shrink-0 ${className}`}>
@@ -208,8 +242,9 @@ function FolderIcon({ className = "size-3.5" }: { className?: string }) {
   );
 }
 
-// A line lit the way the app lights a match: shu ring on a soft wash, solid
-// when it's the text as read, dashed when it's a near match.
+// A line lit the way the app lights a match: a highlighter stroke of shu
+// tint with a hairline edge, solid for the text as read, dashed for a near
+// match.
 function lit(kind: "exact" | "near" | null, paper = PAPER): CSSProperties {
   return {
     position: "relative",
@@ -218,8 +253,29 @@ function lit(kind: "exact" | "near" | null, paper = PAPER): CSSProperties {
     margin: "0 -3px",
     padding: "0 3px",
     background: kind ? `linear-gradient(var(--shu-soft), var(--shu-soft)), ${paper}` : undefined,
-    outline: kind === "near" ? "1.5px dashed var(--shu)" : kind ? "1.5px solid var(--shu)" : "1.5px solid transparent",
-    transition: `outline-color 200ms ${EASE}, background-color 200ms ${EASE}`,
+    boxShadow: kind === "exact" ? "inset 0 0 0 1px var(--shu)" : "inset 0 0 0 1px transparent",
+    outline: kind === "near" ? "1px dashed var(--shu)" : "1px dashed transparent",
+    outlineOffset: -1,
+    transition: `box-shadow 200ms ${EASE}, outline-color 200ms ${EASE}, background-color 200ms ${EASE}`,
+  };
+}
+
+// A screenshot tile: a match stays bright with a shu ring just outside it.
+// Anything without the word recedes: its paper goes, leaving only the
+// slot's hairline and faint text, so on a dark panel it sinks away instead
+// of sitting there as a grey slab. Never a grey veil.
+// `scale` is left out on motion elements, where Motion owns the transform.
+function tileState(found: boolean, searching: boolean, withScale = true): CSSProperties {
+  const recede = searching && !found;
+  return {
+    ...(recede ? { backgroundColor: "transparent" } : {}),
+    opacity: recede ? 0.45 : 1,
+    filter: recede ? "grayscale(1)" : "grayscale(0)",
+    ...(withScale ? { scale: recede ? 0.985 : 1 } : {}),
+    boxShadow: found
+      ? "0 0 0 2px var(--panel), 0 0 0 3.5px var(--shu)"
+      : "0 0 0 2px transparent, 0 0 0 3.5px transparent",
+    transition: `background-color 220ms ${EASE}, opacity 220ms ${EASE}, filter 220ms ${EASE}, scale 220ms ${EASE}, box-shadow 220ms ${EASE}`,
   };
 }
 
@@ -311,8 +367,8 @@ function NearDemo() {
             layout
             transition={SPRING}
             key={s.id}
-            className="relative overflow-hidden rounded-[6px] p-2 sm:p-3"
-            style={{ background: PAPER, color: PAPER_INK }}
+            className="relative overflow-hidden rounded-[6px] p-2 outline outline-1 -outline-offset-1 outline-[var(--outline)] sm:p-3"
+            style={{ backgroundColor: PAPER, color: PAPER_INK, ...tileState(s.best !== null, q !== "", false) }}
           >
             <p className="truncate text-[11px] font-semibold sm:text-[12px]">{s.head}</p>
             <div className="mt-1.5 flex flex-col items-start gap-1 text-[10px] sm:text-[12px]">
@@ -322,20 +378,8 @@ function NearDemo() {
                 </span>
               ))}
             </div>
-            {/* The veil over a match, under its lit line; screenshots
-                without the word sink into the window. */}
             <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 z-[5] bg-[#0b0b0c]/55"
-              style={{ opacity: s.best ? 1 : 0, transition: `opacity 220ms ${EASE}` }}
-            />
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 z-[20] bg-sunk"
-              style={{ opacity: q && !s.best ? 0.86 : 0, transition: `opacity 220ms ${EASE}` }}
-            />
-            <span
-              className="absolute bottom-1.5 left-1.5 z-[25] rounded-full bg-panel px-1.5 py-0.5 text-[10px] text-dim shadow-[0_0_0_1px_var(--line)] sm:bottom-2 sm:left-2"
+              className="absolute bottom-1.5 left-1.5 z-[25] rounded-full border border-black/10 bg-white px-1.5 py-0.5 text-[10px] text-[#6e6e73] sm:bottom-2 sm:left-2"
               style={{
                 opacity: s.best === "near" ? 1 : 0,
                 transform: s.best === "near" ? "scale(1)" : "scale(0.96)",
@@ -471,7 +515,7 @@ function FiltersDemo() {
             spellCheck={false}
             autoComplete="off"
             aria-label="Search with filters"
-            className="feat-input relative w-full bg-transparent text-base text-transparent caret-[var(--ai)] outline-none selection:bg-ai-soft sm:text-[14px]"
+            className="feat-input relative w-full bg-transparent text-base text-transparent caret-[var(--shu)] outline-none selection:bg-shu-soft sm:text-[14px]"
           />
         </span>
         <span className="shrink-0 text-[12px] tabular-nums" aria-live="polite">
@@ -491,7 +535,7 @@ function FiltersDemo() {
           >
             <span
               aria-hidden
-              className="absolute top-1.5 bottom-1.5 left-0 w-[2px] origin-center rounded-full bg-ai"
+              className="absolute top-1.5 bottom-1.5 left-0 w-[2px] origin-center rounded-full bg-shu"
               style={{
                 transform: matches[i] ? "scaleY(1)" : "scaleY(0.3)",
                 opacity: matches[i] ? 1 : 0,
@@ -515,7 +559,7 @@ function FiltersDemo() {
               aria-pressed={on}
               onClick={() => toggle(c)}
               className={`press h-7 shrink-0 rounded-full border px-2.5 font-mono text-[12px] ${
-                on ? "border-transparent bg-ai-soft text-ai" : "border-line text-dim hover:text-ink"
+                on ? "border-transparent bg-shu-soft text-shu" : "border-line text-dim hover:text-ink"
               }`}
             >
               {c}
@@ -594,7 +638,7 @@ function TrashDemo() {
       aria-label="Example search for otp. Keys: Ctrl Shift A marks all, Ctrl Delete moves to the trash, Ctrl Z puts them back."
       tabIndex={0}
       onKeyDown={onKey}
-      className="feat-group flex h-full flex-col [--ring:var(--kihada)]"
+      className="feat-group flex h-full flex-col"
     >
       <div className="flex h-11 shrink-0 items-center gap-2.5 border-b border-line px-3.5 text-dim">
         <SearchIcon />
@@ -635,9 +679,12 @@ function TrashDemo() {
                     style={{
                       background: PAPER,
                       color: PAPER_INK,
-                      outline: on ? "2px solid var(--kihada)" : "2px solid transparent",
-                      outlineOffset: 1,
-                      transition: `outline-color 150ms ${EASE}, scale 160ms ${EASE}`,
+                      // A hairline edge always; marked adds the shu ring
+                      // outside it, with a sliver of card between.
+                      boxShadow: on
+                        ? "0 0 0 1px var(--outline), 0 0 0 3px var(--panel), 0 0 0 4.5px var(--shu)"
+                        : "0 0 0 1px var(--outline), 0 0 0 3px transparent, 0 0 0 4.5px transparent",
+                      transition: `box-shadow 150ms ${EASE}, scale 160ms ${EASE}`,
                     }}
                   >
                     <span className="truncate text-[10px]" style={{ color: PAPER_DIM }}>
@@ -647,7 +694,7 @@ function TrashDemo() {
                     <span className="truncate font-mono text-[12px] font-semibold tracking-wide">{o.code}</span>
                     <motion.span
                       aria-hidden
-                      className="absolute top-1.5 right-1.5 grid size-4 place-items-center rounded-full bg-kihada text-white"
+                      className="absolute top-1.5 right-1.5 grid size-4 place-items-center rounded-full bg-shu text-[var(--on-shu,#fff)]"
                       initial={false}
                       animate={on ? ICON_IN : ICON_OUT}
                       transition={SPRING}
@@ -682,8 +729,8 @@ function TrashDemo() {
             onClick={trash}
             className="press flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[12px] font-medium"
             style={{
-              background: confirming ? "var(--kihada)" : "var(--sunk)",
-              color: confirming ? "#fff" : "var(--ink)",
+              background: confirming ? "var(--ink)" : "var(--sunk)",
+              color: confirming ? "var(--bg)" : "var(--ink)",
               transition: `background-color 150ms ${EASE}, color 150ms ${EASE}, scale 160ms ${EASE}`,
             }}
           >
@@ -774,7 +821,7 @@ function BurstDemo() {
           flip();
         }
       }}
-      className="feat-group relative h-full [--ring:var(--matsu)]"
+      className="feat-group relative h-full"
     >
       <div className="absolute top-1/2 left-1/2" style={{ marginTop: -H / 2 - 8 }}>
         {Array.from({ length: BURST }, (_, i) => BURST - 1 - i).map((i) => (
@@ -899,9 +946,15 @@ function CopyDemo() {
     });
   };
 
+  // Measured on screen. Inside a zoomed showcase the screen is larger than
+  // the layout, so the box is drawn divided by that zoom.
   const point = (e: ReactPointerEvent) => {
     const r = shot.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const zoomOf = () => {
+    const el = shot.current;
+    return el && el.offsetWidth ? el.getBoundingClientRect().width / el.offsetWidth : 1;
   };
 
   // Mouse and pen drag a box; on touch the page has to keep scrolling, so a
@@ -942,7 +995,7 @@ function CopyDemo() {
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
-        className="group relative w-full max-w-[340px] cursor-crosshair rounded-[8px] p-3.5 select-none"
+        className="group relative w-full max-w-[340px] cursor-crosshair rounded-[8px] p-3.5 outline outline-1 -outline-offset-1 outline-[var(--outline)] select-none"
         style={{ background: PAPER, color: PAPER_INK }}
       >
         <div className="flex flex-col items-start gap-1">
@@ -964,9 +1017,9 @@ function CopyDemo() {
                 i === 0 ? "text-[13px] font-semibold" : "font-mono text-[11.5px]"
               } [@media(hover:hover)_and_(pointer:fine)]:group-hover:shadow-[0_0_0_1px_rgb(0_0_0/0.08)]`}
               style={{
-                background: picked.includes(i) ? "var(--ai-soft)" : "transparent",
-                outline: picked.includes(i) ? "1.5px solid var(--ai)" : "1.5px solid transparent",
-                transition: `background-color 120ms ${EASE}, outline-color 120ms ${EASE}`,
+                background: picked.includes(i) ? "var(--shu-soft)" : "transparent",
+                boxShadow: picked.includes(i) ? "inset 0 0 0 1px var(--shu)" : "inset 0 0 0 1px transparent",
+                transition: `background-color 120ms ${EASE}, box-shadow 120ms ${EASE}`,
               }}
             >
               {l}
@@ -976,13 +1029,22 @@ function CopyDemo() {
         {box && (
           <span
             aria-hidden
-            className="pointer-events-none absolute rounded-[2px] border border-ai bg-ai-soft"
-            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+            className="pointer-events-none absolute rounded-[2px]"
+            // The rubber band is drawn in the screenshot's own ink, so only
+            // the lines it catches turn shu.
+            style={{
+              left: box.x / zoomOf(),
+              top: box.y / zoomOf(),
+              width: box.w / zoomOf(),
+              height: box.h / zoomOf(),
+              border: "1px dashed rgb(28 28 30 / 0.45)",
+              background: "rgb(28 28 30 / 0.04)",
+            }}
           />
         )}
       </div>
       <Toast show={!!message}>
-        <motion.span initial={ICON_OUT} animate={ICON_IN} transition={SPRING} className="text-ai">
+        <motion.span initial={ICON_OUT} animate={ICON_IN} transition={SPRING} className="text-ink">
           <CheckIcon />
         </motion.span>
         {message}
@@ -1058,10 +1120,10 @@ function ClipboardDemo() {
         >
           <span
             className="relative block h-5 w-9 rounded-full"
-            style={{ background: on ? "var(--matsu)" : "var(--line)", transition: `background-color 150ms ${EASE}` }}
+            style={{ background: on ? "var(--ink)" : "var(--line)", transition: `background-color 150ms ${EASE}` }}
           >
             <span
-              className="absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)]"
+              className="absolute top-0.5 left-0.5 size-4 rounded-full bg-[var(--panel)] shadow-[0_1px_2px_rgb(0_0_0/0.25)]"
               style={{
                 transform: on ? "translateX(16px)" : "translateX(0)",
                 transition: `transform 200ms ${EASE}`,
@@ -1074,7 +1136,7 @@ function ClipboardDemo() {
       <div ref={stage} className="relative flex flex-1 items-center gap-3">
         {/* Somewhere else on the screen: a picture someone copies. */}
         <div className="flex flex-1 flex-col items-center gap-2">
-          <div ref={source} className="relative h-[72px] w-[104px] overflow-hidden rounded-[6px] shadow-[0_0_0_1px_var(--line)]">
+          <div ref={source} className="relative h-[72px] w-[104px] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)]">
             <Picture />
           </div>
           <button
@@ -1096,9 +1158,9 @@ function ClipboardDemo() {
             ref={target}
             className="flex h-10 items-center gap-2 rounded-[8px] bg-panel px-3 text-[13px] text-ink shadow-[0_0_0_1px_var(--line)]"
           >
-            <FolderIcon className="size-4 text-matsu" />
+            <FolderIcon className="size-4 text-dim" />
             Clipboard
-            <span className="relative inline-flex overflow-hidden rounded-full bg-matsu-soft px-1.5 text-[11px] text-matsu tabular-nums">
+            <span className="relative inline-flex overflow-hidden rounded-full bg-sunk px-1.5 text-[11px] text-dim tabular-nums">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.span
                   key={saved}
@@ -1145,7 +1207,7 @@ function ClipboardDemo() {
             transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
             className="flex min-w-0 items-center gap-1.5"
           >
-            <span className="size-1.5 shrink-0 rounded-full bg-matsu" />
+            <span className="size-1.5 shrink-0 rounded-full bg-shu" />
             <span className="truncate font-mono text-[11px] text-dim">{last}</span>
             <span className="shrink-0 text-ink">searchable</span>
           </motion.span>
@@ -1193,7 +1255,10 @@ function ScriptsDemo() {
       </div>
 
       <div className="flex min-h-0 flex-1 items-stretch gap-2.5 p-2.5">
-        <div className="relative min-w-0 flex-1 overflow-hidden rounded-[6px] p-3" style={{ background: PAPER, color: PAPER_INK }}>
+        <div
+          className="relative min-w-0 flex-1 overflow-hidden rounded-[6px] p-3 outline outline-1 -outline-offset-1 outline-[var(--outline)]"
+          style={{ backgroundColor: PAPER, color: PAPER_INK, ...tileState(hits.some(Boolean), !!q) }}
+        >
           <p className="text-[10px] font-semibold tracking-wide" style={{ color: PAPER_DIM }}>
             ORDERS
           </p>
@@ -1204,36 +1269,19 @@ function ScriptsDemo() {
               </span>
             ))}
           </div>
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-[5] bg-[#0b0b0c]/55"
-            style={{ opacity: hits.some(Boolean) ? 1 : 0, transition: `opacity 220ms ${EASE}` }}
-          />
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-[20] bg-sunk"
-            style={{ opacity: q && !hits.some(Boolean) ? 0.86 : 0, transition: `opacity 220ms ${EASE}` }}
-          />
         </div>
 
         {/* A sign written top to bottom, read as a column. */}
-        <div className="relative w-12 shrink-0 overflow-hidden rounded-[6px] py-3" style={{ background: "#f7efe2", color: PAPER_INK }}>
+        <div
+          className="relative w-12 shrink-0 overflow-hidden rounded-[6px] py-3 outline outline-1 -outline-offset-1 outline-[var(--outline)]"
+          style={{ backgroundColor: "#f7efe2", color: PAPER_INK, ...tileState(vertical, !!q) }}
+        >
           <span
             className="mx-auto block text-[12px] leading-none tracking-[0.12em] [writing-mode:vertical-rl]"
             style={lit(vertical ? "exact" : null, "#f7efe2")}
           >
             {VERTICAL}
           </span>
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-[5] bg-[#0b0b0c]/55"
-            style={{ opacity: vertical ? 1 : 0, transition: `opacity 220ms ${EASE}` }}
-          />
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-[20] bg-sunk"
-            style={{ opacity: q && !vertical ? 0.86 : 0, transition: `opacity 220ms ${EASE}` }}
-          />
         </div>
       </div>
 
@@ -1361,8 +1409,8 @@ function ShortcutsDemo() {
             aria-label={`${c.name}: ${keys[i].join(" ")}. Press Enter, then the new keys.`}
             className="press flex h-11 shrink-0 items-center gap-3 rounded-[8px] px-3 text-left"
             style={{
-              background: rec ? "var(--panel)" : "transparent",
-              boxShadow: rec ? "0 0 0 1.5px var(--kihada)" : "0 0 0 1.5px transparent",
+              background: rec ? "var(--sunk)" : "transparent",
+              boxShadow: rec ? "0 0 0 1.5px var(--shu)" : "0 0 0 1.5px transparent",
               transition: `background-color 150ms ${EASE}, box-shadow 150ms ${EASE}, scale 160ms ${EASE}`,
             }}
           >
@@ -1370,7 +1418,9 @@ function ShortcutsDemo() {
               <span className="truncate text-[14px] text-ink">{c.name}</span>
               <span
                 className="h-4 text-[11px]"
-                style={{ color: err ? "var(--kihada)" : "var(--faint)", transition: `color 150ms ${EASE}` }}
+                // A refusal is said plainly in ink, with the shake; shu is
+                // kept for what's found or being recorded.
+                style={{ color: err ? "var(--ink)" : "var(--faint)", transition: `color 150ms ${EASE}` }}
               >
                 {err ? err.text : rec ? "escape cancels, delete resets" : ""}
               </span>
@@ -1385,20 +1435,20 @@ function ShortcutsDemo() {
                 {keys[i].map((k) => (
                   <Kbd
                     key={k}
-                    className={fresh === i ? "text-kihada shadow-[0_0_0_1px_var(--kihada)]" : ""}
+                    className={fresh === i ? "text-shu shadow-[0_0_0_1px_var(--shu)]" : ""}
                   >
                     {k}
                   </Kbd>
                 ))}
               </motion.span>
               <motion.span
-                className="col-start-1 row-start-1 flex items-center gap-1 text-[12px] text-kihada"
+                className="col-start-1 row-start-1 flex items-center gap-1 text-[12px] text-shu"
                 initial={false}
                 animate={rec ? { opacity: 1, filter: "blur(0px)" } : { opacity: 0, filter: "blur(4px)" }}
                 transition={SPRING}
               >
                 {held.length ? held.map((k) => <Kbd key={k}>{k}</Kbd>) : "press new keys"}
-                <span aria-hidden className="caret-blink ml-0.5 h-3.5 w-px bg-kihada" />
+                <span aria-hidden className="caret-blink ml-0.5 h-3.5 w-px bg-shu" />
               </motion.span>
             </span>
           </button>
@@ -1419,41 +1469,90 @@ export function Features() {
           the page-wide :focus-visible one: the demo search boxes show focus
           with their caret like the app does, and the keyboard-driven demos
           draw their ring inside, where the rounded demo area can't clip it. */}
-      <style>{`@keyframes caret-blink{0%,45%{opacity:1}55%,100%{opacity:0}}.caret-blink{animation:caret-blink 1s steps(1,end) infinite}@media (prefers-reduced-motion: reduce){.caret-blink{animation:none}}.feat-input:focus-visible{outline:none}.feat-group:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:10px}`}</style>
+      <style>{`@keyframes caret-blink{0%,45%{opacity:1}55%,100%{opacity:0}}.caret-blink{animation:caret-blink 1s steps(1,end) infinite}@media (prefers-reduced-motion: reduce){.caret-blink{animation:none}}.feat-input:focus-visible{outline:none}.feat-group:focus-visible{outline:2px solid var(--shu);outline-offset:-2px;border-radius:16px 16px 0 0}`}</style>
       <section
         id="features"
         aria-labelledby="features-title"
-        className="mx-auto w-full max-w-5xl px-4 pt-36 sm:px-6"
+        className="mx-auto w-full max-w-6xl px-4 sm:px-6"
       >
-        <Reveal>
-          <h2 id="features-title" className="text-3xl font-medium tracking-[-0.025em] text-ink sm:text-4xl">
-            everything it does
+        <div className="max-w-2xl">
+          <h2 id="features-title" className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-5xl">
+            What it does
           </h2>
-          <p className="mt-3 max-w-xl text-lg leading-relaxed text-dim">
-            Each of these works the way it does in the app, with the same keys.
-            Go on, poke them.
+          <p className="mt-4 text-lg leading-relaxed text-dim">
+            Everything below is live and works the way it does in the app, with
+            the same keys.
           </p>
-        </Reveal>
+        </div>
 
-        <ul className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card
-            wide
-            ink="shu"
-            height={252}
+        <div className="mt-16 flex flex-col gap-20 sm:mt-20 sm:gap-28">
+          <Showcase
+            print={suddenShower}
+            crop={{ scale: 1, origin: "50% 50%" }}
+            credit={
+              <>
+                <i>Sudden Shower over Shin-Ōhashi Bridge and Atake</i>, Hiroshige, 1857
+              </>
+            }
             title="Finds the words it misread"
             body={
               <>
-                OCR sometimes reads an I as an l, or an O as a 0. Those still turn up, after every
-                exact match, marked <em className="not-italic text-ink">near match</em> and shown
-                exactly as they were read. Try <Code>inv0ice</Code>.
+                OCR sometimes reads an I as an l, or an O as a 0. Those screenshots still turn up,
+                after every exact match, marked as a near match.
               </>
             }
+            hint={
+              <>
+                Try <Code>inv0ice</Code>
+              </>
+            }
+            height={300}
           >
             <NearDemo />
-          </Card>
+          </Showcase>
+
+          <Showcase
+            flip
+            print={redFuji}
+            crop={{ scale: 1.35, origin: "80% 35%" }}
+            zoom={1.35}
+            credit={
+              <>
+                <i>Fine Wind, Clear Morning</i>, Hokusai, c. 1831
+              </>
+            }
+            title="Bursts fold into one"
+            body="Six screenshots of the same chat, taken while you scrolled, show as one tile. The rest are one key away."
+            hint={
+              <>
+                <Kbd>ctrl</Kbd> <Kbd>e</Kbd> unfolds them
+              </>
+            }
+            height={300}
+          >
+            <BurstDemo />
+          </Showcase>
+
+          <Showcase
+            print={redFuji}
+            crop={{ scale: 2.3, origin: "8% 8%" }}
+            zoom={1.25}
+            credit={
+              <>
+                <i>Fine Wind, Clear Morning</i>, Hokusai, c. 1831
+              </>
+            }
+            title="Copy just the lines you need"
+            body="Drag a box over an open screenshot to copy the lines inside it, or click one line to copy only that."
+            hint="Drag across the booking"
+            height={260}
+          >
+            <CopyDemo />
+          </Showcase>
+        </div>
+
+        <ul className="mt-24 grid grid-cols-1 gap-4 sm:mt-32 sm:grid-cols-2 lg:grid-cols-3">
           <Card
-            ink="ai"
-            delay={0.05}
             title="Filters for where and when"
             body={
               <>
@@ -1465,8 +1564,6 @@ export function Features() {
             <FiltersDemo />
           </Card>
           <Card
-            ink="kihada"
-            delay={0.1}
             title="Clear out a hundred at once"
             body={
               <>
@@ -1478,22 +1575,6 @@ export function Features() {
             <TrashDemo />
           </Card>
           <Card
-            ink="matsu"
-            title="Bursts fold into one"
-            body="Six shots of the same chat while you scroll show as one tile. Ctrl+E unfolds the rest right after it."
-          >
-            <BurstDemo />
-          </Card>
-          <Card
-            ink="ai"
-            delay={0.05}
-            title="Copy just the part you need"
-            body="Drag a box over an open screenshot to copy the lines inside it, or click one line to copy only that."
-          >
-            <CopyDemo />
-          </Card>
-          <Card
-            ink="matsu"
             title="Copied images count too"
             body={
               <>
@@ -1505,8 +1586,6 @@ export function Features() {
             <ClipboardDemo />
           </Card>
           <Card
-            ink="shu"
-            delay={0.05}
             title="Hindi, Marathi, Nepali, and vertical text"
             body="Turn on Devanagari in settings and it reads that too. Vertical Japanese and sideways chart labels read as well."
           >
@@ -1514,8 +1593,7 @@ export function Features() {
           </Card>
           <Card
             wide
-            ink="kihada"
-            height={200}
+            height={244}
             title="Every shortcut is yours"
             body="Pick a command and press the new keys. Escape cancels, Delete puts the default back, and keys already in use are refused."
           >

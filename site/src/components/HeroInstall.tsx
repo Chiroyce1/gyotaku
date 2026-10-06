@@ -16,6 +16,10 @@ type Mode = Os | "phone" | null;
 
 const ICON = { type: "spring", duration: 0.3, bounce: 0 } as const;
 
+// The one loud thing on the page: a big, solid shu button.
+const CTA =
+  "press group inline-flex h-[52px] items-center justify-center gap-3 rounded-[14px] bg-shu pr-4 pl-6 text-[17px] font-semibold tracking-[-0.01em] text-[var(--on-shu)] hover:brightness-[1.06]";
+
 export function HeroInstall() {
   const [mode, setMode] = useState<Mode>(null);
   const [copied, setCopied] = useState(false);
@@ -38,10 +42,10 @@ export function HeroInstall() {
     return (
       <a
         href="#install"
-        className="press group inline-flex h-12 items-center justify-center gap-2.5 rounded-xl bg-ink pr-4 pl-5 font-medium text-bg shadow-[0_1px_0_rgb(255_255_255/0.12)_inset,0_8px_24px_-8px_rgb(0_0_0/0.35)]"
+        className={CTA}
       >
         {label}
-        <span className="flex size-6 items-center justify-center rounded-md bg-bg/10">
+        <span className="flex size-6 items-center justify-center rounded-md bg-black/10">
           <Arrow
             direction="down"
             className="transition-[translate] duration-200 ease-out group-hover:translate-y-0.5"
@@ -73,11 +77,11 @@ export function HeroInstall() {
       };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col items-center gap-3">
       <button
         type="button"
         onClick={copy}
-        className="press group relative inline-flex h-12 items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-ink pr-4 pl-5 font-medium text-bg shadow-[0_1px_0_rgb(255_255_255/0.12)_inset,0_8px_24px_-8px_rgb(0_0_0/0.35)]"
+        className={`${CTA} relative overflow-hidden`}
       >
         {/* Both labels share one cell, so the button never changes width. */}
         <span className="grid text-left">
@@ -103,7 +107,7 @@ export function HeroInstall() {
             Copied, now paste it
           </span>
         </span>
-        <span className="relative flex size-6 items-center justify-center rounded-md bg-bg/10">
+        <span className="relative flex size-6 items-center justify-center rounded-md bg-black/10">
           <AnimatePresence initial={false} mode="popLayout">
             <motion.span key={copied ? "check" : "copy"} {...swap} transition={ICON} className="flex">
               {copied ? <Check /> : <Copy />}
@@ -111,7 +115,7 @@ export function HeroInstall() {
           </AnimatePresence>
         </span>
       </button>
-      <p aria-live="polite" className="text-[13px] text-dim">
+      <p aria-live="polite" className="text-center text-[13px] text-dim">
         {copied ? (
           <>Into {tab.id === "windows" ? "PowerShell" : "a terminal"}, then press Enter.</>
         ) : (

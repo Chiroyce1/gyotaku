@@ -1,35 +1,27 @@
 @import "tailwindcss";
 
-/* Iro-gyotaku: the colored kind of fish print, several inks pressed onto
-   washi. Light is the paper, warm and a little uneven; dark is sumi on an
-   indigo night. Shu (朱, a seal's vermilion) still means "found"; the other
-   inks give each part of the page its own color:
-   ai (藍, indigo), kihada (黄蘗, bark yellow), matsu (松, pine). */
+/* The app's own look: near-monochrome surfaces, and shu (朱, the vermilion
+   of a seal) only where something is found or asked of you. Color on the
+   page comes from the screenshots themselves, the way it does in the app. */
 :root {
-  --bg: #f3eee3;
-  --panel: #fbf8f1;
-  --sunk: #e9e2d3;
-  --ink: #1f1b16;
-  --dim: #5e574c;
-  --faint: #756d61;
-  --line: rgb(70 50 20 / 0.13);
-  --shu: #d4461a;
-  --shu-soft: rgb(212 70 26 / 0.12);
-  --ai: #24427a;
-  --ai-soft: rgb(36 66 122 / 0.1);
-  --kihada: #b07a12;
-  --kihada-soft: rgb(176 122 18 / 0.12);
-  --matsu: #2f6a46;
-  --matsu-soft: rgb(47 106 70 / 0.11);
+  --bg: #fafaf9;
+  --panel: #ffffff;
+  --sunk: #f3f3f1;
+  --ink: #121211;
+  --dim: #5b5b57;
+  --faint: #73736d;
+  --line: rgb(0 0 0 / 0.08);
+  --line-strong: rgb(0 0 0 / 0.14);
+  --shu: #e0501c;
+  --shu-soft: rgb(224 80 28 / 0.1);
+  --on-shu: #fff;
   --outline: oklch(0 0 0 / 0.1);
   --shadow:
-    0 0 0 1px rgb(70 50 20 / 0.09), 0 1px 2px rgb(70 50 20 / 0.06),
-    0 14px 34px -10px rgb(70 50 20 / 0.2);
-  --band-ai: #213c70;
-  --band-shu: #d04319;
-  /* Text on a shu fill. On the shu band shu turns to paper, so this turns
-     to the band's red. */
-  --on-shu: #fff;
+    0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04),
+    0 8px 24px -12px rgb(0 0 0 / 0.12);
+  --shadow-lg:
+    0 0 0 1px rgb(0 0 0 / 0.06), 0 2px 4px rgb(0 0 0 / 0.04),
+    0 32px 64px -24px rgb(0 0 0 / 0.22);
   color-scheme: light;
 }
 
@@ -37,88 +29,79 @@
    on <html data-theme>. The two blocks must stay identical. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0d0f17;
-    --panel: #151826;
-    --sunk: #1d2133;
-    --ink: #eee8dc;
-    --dim: #a59f94;
-    --faint: #8a8579;
-    --line: rgb(220 225 255 / 0.09);
-    --shu: #ff7a45;
-    --shu-soft: rgb(255 122 69 / 0.15);
-    --ai: #8aa8eb;
-    --ai-soft: rgb(138 168 235 / 0.13);
-    --kihada: #e6b450;
-    --kihada-soft: rgb(230 180 80 / 0.13);
-    --matsu: #7dbd92;
-    --matsu-soft: rgb(125 189 146 / 0.13);
+    --bg: #0a0a0b;
+    --panel: #121214;
+    --sunk: #19191c;
+    --ink: #ededea;
+    --dim: #a1a19b;
+    --faint: #85857f;
+    --line: rgb(255 255 255 / 0.07);
+    --line-strong: rgb(255 255 255 / 0.13);
+    --shu: #ff7438;
+    --shu-soft: rgb(255 116 56 / 0.13);
+    --on-shu: #1a0b04;
     --outline: oklch(1 0 0 / 0.1);
     --shadow:
-      0 0 0 1px rgb(220 225 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
-      0 24px 48px -12px rgb(0 0 0 / 0.65);
-    --band-ai: #1a2c58;
-    --band-shu: #b93a14;
-    --on-shu: #1b0f08;
+      0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.5),
+      0 8px 24px -12px rgb(0 0 0 / 0.6);
+    --shadow-lg:
+      0 0 0 1px rgb(255 255 255 / 0.07), 0 2px 4px rgb(0 0 0 / 0.5),
+      0 32px 64px -24px rgb(0 0 0 / 0.8);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0d0f17;
-  --panel: #151826;
-  --sunk: #1d2133;
-  --ink: #eee8dc;
-  --dim: #a59f94;
-  --faint: #8a8579;
-  --line: rgb(220 225 255 / 0.09);
-  --shu: #ff7a45;
-  --shu-soft: rgb(255 122 69 / 0.15);
-  --ai: #8aa8eb;
-  --ai-soft: rgb(138 168 235 / 0.13);
-  --kihada: #e6b450;
-  --kihada-soft: rgb(230 180 80 / 0.13);
-  --matsu: #7dbd92;
-  --matsu-soft: rgb(125 189 146 / 0.13);
+  --bg: #0a0a0b;
+  --panel: #121214;
+  --sunk: #19191c;
+  --ink: #ededea;
+  --dim: #a1a19b;
+  --faint: #85857f;
+  --line: rgb(255 255 255 / 0.07);
+  --line-strong: rgb(255 255 255 / 0.13);
+  --shu: #ff7438;
+  --shu-soft: rgb(255 116 56 / 0.13);
+  --on-shu: #1a0b04;
   --outline: oklch(1 0 0 / 0.1);
   --shadow:
-    0 0 0 1px rgb(220 225 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
-    0 24px 48px -12px rgb(0 0 0 / 0.65);
-  --band-ai: #1a2c58;
-  --band-shu: #b93a14;
-  --on-shu: #1b0f08;
+    0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.5),
+    0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-lg:
+    0 0 0 1px rgb(255 255 255 / 0.07), 0 2px 4px rgb(0 0 0 / 0.5),
+    0 32px 64px -24px rgb(0 0 0 / 0.8);
   color-scheme: dark;
 }
 
-/* Dyed bands. Every component reads the tokens, so redefining them here
-   re-dyes whatever sits inside: the install tabs on indigo cloth, the last
-   call on a sheet of vermilion. */
-.band-ai {
-  --bg: var(--band-ai);
-  --panel: rgb(255 255 255 / 0.07);
-  --sunk: rgb(0 0 0 / 0.22);
-  --ink: #f4efe4;
-  --dim: rgb(244 239 228 / 0.74);
-  --faint: rgb(244 239 228 / 0.6);
-  --line: rgb(255 255 255 / 0.14);
-  --shu: #ffb38f;
-  --shu-soft: rgb(255 179 143 / 0.16);
-  --shadow: 0 0 0 1px rgb(255 255 255 / 0.1), 0 20px 40px -16px rgb(0 0 0 / 0.5);
-  background: var(--band-ai);
+/* One inverted band for the moments that matter (install, the last call):
+   ink on a light page, a lifted panel on a dark one. Components read the
+   tokens, so redefining them here re-colors everything inside. */
+.band {
+  --bg: #121211;
+  --panel: rgb(255 255 255 / 0.06);
+  --sunk: rgb(255 255 255 / 0.07);
+  --ink: #f4f4f1;
+  --dim: rgb(244 244 241 / 0.72);
+  --faint: rgb(244 244 241 / 0.6);
+  --line: rgb(255 255 255 / 0.1);
+  --line-strong: rgb(255 255 255 / 0.18);
+  --shu: #ff7438;
+  --shu-soft: rgb(255 116 56 / 0.16);
+  --on-shu: #1a0b04;
+  --shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 20px 40px -20px rgb(0 0 0 / 0.6);
+  background: var(--bg);
   color: var(--ink);
+  color-scheme: dark;
 }
-.band-shu {
-  --bg: var(--band-shu);
-  --panel: rgb(255 255 255 / 0.08);
-  --sunk: rgb(0 0 0 / 0.2);
-  --ink: #fff6ec;
-  --dim: rgb(255 246 236 / 0.8);
-  --faint: rgb(255 246 236 / 0.66);
-  --line: rgb(255 255 255 / 0.2);
-  --shu: #fff6ec;
-  --shu-soft: rgb(255 255 255 / 0.16);
-  --on-shu: var(--band-shu);
-  background: var(--band-shu);
-  color: var(--ink);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .band {
+    --bg: #111113;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), inset 0 -1px 0 rgb(255 255 255 / 0.06);
+  }
+}
+:root[data-theme="dark"] .band {
+  --bg: #111113;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), inset 0 -1px 0 rgb(255 255 255 / 0.06);
 }
 
 @theme inline {
@@ -129,16 +112,19 @@
   --color-dim: var(--dim);
   --color-faint: var(--faint);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-shu: var(--shu);
   --color-shu-soft: var(--shu-soft);
-  --color-ai: var(--ai);
-  --color-ai-soft: var(--ai-soft);
-  --color-kihada: var(--kihada);
-  --color-kihada-soft: var(--kihada-soft);
-  --color-matsu: var(--matsu);
-  --color-matsu-soft: var(--matsu-soft);
-  --font-sans: var(--font-plex-sans);
-  --font-mono: var(--font-plex-mono);
+  /* The old multi-ink palette, folded back into plain ink so nothing that
+     still names it adds color. */
+  --color-ai: var(--ink);
+  --color-ai-soft: var(--sunk);
+  --color-kihada: var(--ink);
+  --color-kihada-soft: var(--sunk);
+  --color-matsu: var(--ink);
+  --color-matsu-soft: var(--sunk);
+  --font-sans: var(--font-sans-face);
+  --font-mono: var(--font-mono-face);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-icon: cubic-bezier(0.2, 0, 0, 1);
@@ -155,6 +141,7 @@ html {
 body {
   background: var(--bg);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
 }
 
 ::selection {
@@ -177,122 +164,79 @@ p {
   text-wrap: pretty;
 }
 
+/* Headlines: Inter's display cut, semibold and set tight, the way product
+   sites set a short claim. */
+.font-display {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  font-variation-settings: "opsz" 32;
+  letter-spacing: -0.035em;
+}
+
 /* Pressable things give a little under the finger. The color properties are
    listed too, since this sits outside Tailwind's layers and would otherwise
    cancel a hover color fade on the same element. */
 .press {
-  transition-property: scale, color, background-color, border-color, opacity;
-  transition-duration: 160ms, 150ms, 150ms, 150ms, 150ms;
+  transition-property: scale, color, background-color, border-color, opacity, box-shadow;
+  transition-duration: 160ms, 150ms, 150ms, 150ms, 150ms, 150ms;
   transition-timing-function: var(--ease-out);
 }
 .press:active {
   scale: 0.96;
 }
 
-/* Paper. A faint grain over everything, so the page reads as a print and
-   not a screen. Plain alpha specks on one fixed layer, no blend mode, so
-   scrolling only moves the page under it and never re-blends. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  pointer-events: none;
-  opacity: 0.045;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body::before {
-    filter: invert(1);
-    opacity: 0.03;
-  }
-}
-:root[data-theme="dark"] body::before {
-  filter: invert(1);
-  opacity: 0.03;
-}
-
-/* The hero comes in once, in reading order, 100ms apart. The headline and
-   lede only rise out of a blur and never start invisible, so the largest
-   paint isn't held back waiting for a fade. */
-@keyframes rise {
-  from {
-    opacity: 0;
-    translate: 0 8px;
-    filter: blur(4px);
-  }
-}
-@keyframes settle {
-  from {
-    translate: 0 8px;
-    filter: blur(4px);
-  }
-}
-.rise {
-  animation: rise 700ms var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 100ms);
-}
-.rise-text {
-  animation: settle 700ms var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 100ms);
-}
-
 /* The headline's last word gets found, the way the app lights a match: a
-   shu box wipes across it from the left once the headline has settled. */
+   soft shu highlight wipes across it once, just after the page appears. */
 @keyframes found {
   from {
-    clip-path: inset(0 100% 0 0 round 0.18em);
+    clip-path: inset(0 100% 0 0 round 0.14em);
   }
   to {
-    clip-path: inset(0 0 0 0 round 0.18em);
+    clip-path: inset(0 0 0 0 round 0.14em);
   }
 }
-/* The box bleeds a little to the left so the word itself stays on the text
-   edge when it wraps onto its own line on a phone. */
 .found {
   position: relative;
+  isolation: isolate;
   white-space: nowrap;
-  margin-inline: -0.08em 0;
-  padding-inline: 0.08em 0.1em;
+  padding-inline: 0.1em;
 }
 .found::before {
   content: "";
   position: absolute;
-  inset: 0.12em 0 0;
-  border-radius: 0.18em;
+  inset: 0.1em 0 0.02em;
+  border-radius: 0.14em;
   background: var(--shu-soft);
-  box-shadow: inset 0 0 0 2px var(--shu);
   z-index: -1;
-  animation: found 650ms var(--ease-in-out) 750ms both;
+  animation: found 600ms var(--ease-in-out) 300ms both;
 }
 
-/* The hero print: each line pressed down in turn, from its left edge. */
-@keyframes press-line {
-  from {
-    opacity: 0;
-    transform: scaleX(0.4);
+/* FAQ answers open to their natural height where the browser can animate
+   to `auto`; elsewhere they simply appear. */
+@supports (interpolate-size: allow-keywords) {
+  :root {
+    interpolate-size: allow-keywords;
   }
-}
-.print-line {
-  transform-box: fill-box;
-  transform-origin: left center;
-  animation: press-line 900ms var(--ease-out) both;
-  animation-delay: calc(500ms + var(--i, 0) * 70ms);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .print-line {
-    animation: none;
+  .faq::details-content {
+    height: 0;
+    overflow: clip;
+    transition:
+      height 260ms var(--ease-out),
+      content-visibility 260ms allow-discrete;
+  }
+  .faq[open]::details-content {
+    height: auto;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise,
-  .rise-text,
+  .press:active {
+    scale: none;
+  }
   .found::before {
     animation: none;
   }
-  .press:active {
-    scale: none;
+  .faq::details-content {
+    transition: none;
   }
 }
