@@ -465,8 +465,32 @@ impl Element for TextElement {
             .into_iter()
             .filter(|run| run.len > 0)
             .collect()
-        } else {
+        } else if input.content.is_empty() {
             vec![run]
+        } else {
+            // Filters like `in:discord` muted, so it's clear they were taken
+            // as filters and not as words to find. Not in the accent, which
+            // is kept for what a search found.
+            let mut runs = Vec::new();
+            let mut at = 0;
+            for span in gyotaku_core::query::filter_spans(&display_text) {
+                runs.push(TextRun {
+                    len: span.start - at,
+                    ..run.clone()
+                });
+                runs.push(TextRun {
+                    len: span.end - span.start,
+                    color: theme.muted,
+                    ..run.clone()
+                });
+                at = span.end;
+            }
+            runs.push(TextRun {
+                len: display_text.len() - at,
+                ..run
+            });
+            runs.retain(|run| run.len > 0);
+            runs
         };
 
         let font_size = style.font_size.to_pixels(window.rem_size());

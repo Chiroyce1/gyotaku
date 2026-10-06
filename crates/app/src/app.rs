@@ -16,7 +16,7 @@ use gpui::{
     img, list, point, prelude::*, px, size,
 };
 use gyotaku_core::trash::{self, Trashed};
-use gyotaku_core::{Config, Hit, Index, Line, Rect, Shot, ThemeChoice};
+use gyotaku_core::{Config, Hit, Index, Line, Query, Rect, Shot, ThemeChoice};
 
 use crate::grid::{self, Row};
 use crate::images::{self, Images, Lookup};
@@ -114,6 +114,10 @@ pub struct Gyotaku {
     index: Index,
     input: Entity<TextInput>,
     query: String,
+    /// `query` split into words and filters (`in:`, `date:` and so on).
+    parsed: Query,
+    /// What `hits` was cut off at, so the count can say "2,000+".
+    limit: usize,
     hits: Vec<Hit>,
     /// The lines each hit matched on, looked up the first time its tile is
     /// drawn rather than for every hit up front.
@@ -285,6 +289,8 @@ impl Gyotaku {
             index,
             input,
             query: String::new(),
+            parsed: Query::default(),
+            limit: BROWSE_LIMIT,
             hits: Vec::new(),
             matched: HashMap::new(),
             thumb_paths: Vec::new(),
@@ -494,12 +500,17 @@ impl Gyotaku {
 
     fn load_hits(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).content.to_string();
-        let limit = if query.trim().is_empty() {
+        let parsed = Query::parse(&query);
+        // Only filters, like `date:today`, list everything they let through,
+        // the way browsing does.
+        let limit = if parsed.terms.is_empty() {
             BROWSE_LIMIT
         } else {
             SEARCH_LIMIT
         };
         self.hits = self.index.find(&query, limit).unwrap_or_default();
+        self.parsed = parsed;
+        self.limit = limit;
         self.matched.clear();
         self.thumb_paths = self
             .hits
@@ -1696,7 +1707,7 @@ impl Gyotaku {
             let n = self.hits.len();
             match n {
                 0 => String::new(),
-                SEARCH_LIMIT.. => format!("{}+", thousands(n)),
+                n if n >= self.limit => format!("{}+", thousands(n)),
                 _ => thousands(n),
             }
         } else {
@@ -1767,6 +1778,20 @@ impl Gyotaku {
                     .into(),
                 ),
             }
+        } else if self.parsed.terms.is_empty() {
+            (
+                "nothing taken there or then".into(),
+                "filters: in:folder, date:today, date:week, date:aug, before: and after:".into(),
+            )
+        } else if !self.parsed.filters.is_empty() {
+            (
+                format!(
+                    "nothing says \u{201c}{}\u{201d}",
+                    self.parsed.terms.join(" ")
+                )
+                .into(),
+                "not with those filters, at least. try without them".into(),
+            )
         } else {
             (
                 format!("nothing says \u{201c}{}\u{201d}", self.query.trim()).into(),

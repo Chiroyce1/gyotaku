@@ -1,6 +1,7 @@
 pub mod clipboard;
 mod config;
 mod index;
+pub mod query;
 pub mod status;
 pub mod trash;
 
@@ -11,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 pub use config::{Config, ThemeChoice, default_threads, pictures_dir, tidy, too_broad};
 pub use index::{Hit, Index};
+pub use query::{Filter, Query};
 
 /// A box in normalized image coordinates, so the same numbers work on a
 /// 240px thumbnail and on the full size view.

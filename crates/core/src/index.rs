@@ -6,6 +6,7 @@ use rusqlite::{
     Connection, OptionalExtension, TransactionBehavior, params, params_from_iter, types::Value,
 };
 
+use crate::query::{Filter, Query};
 use crate::{Line, Rect, Shot};
 
 // Bump this whenever the tables change. The index is a cache of OCR output,
@@ -285,12 +286,20 @@ impl Index {
     /// Exact matches come first. If they don't fill `limit`, the near
     /// matches follow: shots that only match once look-alike characters
     /// are folded together, so `0RDER` and `0rcler` turn up for "order".
+    ///
+    /// Filters (`in:`, `date:`, `before:`, `after:`, see `Query`) narrow
+    /// both. A query of only filters lists what they let through, newest
+    /// first.
     pub fn find(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
-        let terms: Vec<&str> = query.split_whitespace().collect();
-        let (long, short): (Vec<&str>, Vec<&str>) =
-            terms.iter().partition(|t| t.chars().count() >= 3);
+        let query = Query::parse(query);
+        let filters = &query.filters;
+        let (long, short): (Vec<&str>, Vec<&str>) = query
+            .terms
+            .iter()
+            .map(String::as_str)
+            .partition(|t| t.chars().count() >= 3);
 
-        let mut hits = self.find_in(false, &long, &short, limit)?;
+        let mut hits = self.find_in(false, &long, &short, filters, limit)?;
         // Fewer than `limit` means that's every exact match there is, so
         // anything new below is near. A query with no word long enough to
         // be misread has no near matches.
@@ -307,7 +316,7 @@ impl Index {
         // The fold only narrows it down. Folded, "internally" holds "email"
         // (rn for m, l for i), so each one is checked against the text as it
         // was read for how many letters had to be taken for others.
-        for hit in self.find_in(true, &folded, &short, limit)? {
+        for hit in self.find_in(true, &folded, &short, filters, limit)? {
             if hits.len() >= limit {
                 break;
             }
@@ -323,7 +332,14 @@ impl Index {
         Ok(hits)
     }
 
-    fn find_in(&self, near: bool, long: &[&str], short: &[&str], limit: usize) -> Result<Vec<Hit>> {
+    fn find_in(
+        &self,
+        near: bool,
+        long: &[&str],
+        short: &[&str],
+        filters: &[Filter],
+        limit: usize,
+    ) -> Result<Vec<Hit>> {
         let (table, alias) = if near {
             ("shots_near", "n")
         } else {
@@ -351,6 +367,27 @@ impl Index {
         for t in short {
             sql.push_str(" AND f.text LIKE ? ESCAPE '\\'");
             args.push(Value::Text(format!("%{}%", escape_like(t))));
+        }
+        for f in filters {
+            match f {
+                // A folder starting with the name, followed by a separator
+                // somewhere later, so it's a folder on the way to the file
+                // and not the file's own name. LIKE ignores case (ASCII only).
+                Filter::In(name) => {
+                    let name = escape_like(name);
+                    sql.push_str(" AND (s.path LIKE ? ESCAPE '\\' OR s.path LIKE ? ESCAPE '\\')");
+                    args.push(Value::Text(format!("%/{name}%/%")));
+                    args.push(Value::Text(format!("%\\\\{name}%\\\\%")));
+                }
+                Filter::Since(t) => {
+                    sql.push_str(" AND s.mtime >= ?");
+                    args.push(Value::Integer(*t));
+                }
+                Filter::Until(t) => {
+                    sql.push_str(" AND s.mtime < ?");
+                    args.push(Value::Integer(*t));
+                }
+            }
         }
 
         sql.push_str(&if long.is_empty() {
@@ -382,7 +419,7 @@ impl Index {
     /// near match, also the lines where one was misread, which is where the
     /// word sits even though it isn't spelled the way it was typed.
     pub fn matching_lines(&self, shot_id: i64, query: &str, near: bool) -> Result<Vec<Line>> {
-        let needles: Vec<Vec<char>> = query.split_whitespace().map(lower).collect();
+        let needles: Vec<Vec<char>> = Query::parse(query).terms.iter().map(|t| lower(t)).collect();
         if needles.is_empty() {
             return Ok(Vec::new());
         }
@@ -1027,5 +1064,110 @@ mod tests {
     #[test]
     fn limit_zero_returns_nothing() {
         assert!(sample().search("", 0).unwrap().is_empty());
+    }
+
+    // Noon UTC, so the day is the same in every timezone the tests run in.
+    fn noon(date: &str) -> i64 {
+        format!("{date}T12:00:00Z")
+            .parse::<jiff::Timestamp>()
+            .unwrap()
+            .as_second()
+    }
+
+    fn filed() -> Index {
+        let mut idx = Index::open_in_memory().unwrap();
+        let now = jiff::Timestamp::now().as_second();
+        for (path, mtime, text) in [
+            (
+                "/home/me/Pictures/Discord/otp.png",
+                noon("2026-08-15"),
+                "your code is 4821",
+            ),
+            (
+                "/home/me/Pictures/Screenshots/otp.png",
+                noon("2026-07-02"),
+                "otp 9912 code",
+            ),
+            (
+                "/home/me/Pictures/Screenshots/discord.png",
+                now,
+                "discord code",
+            ),
+            (
+                "C:\\Users\\me\\Pictures\\Discord\\win.png",
+                noon("2026-08-20"),
+                "code on windows",
+            ),
+        ] {
+            idx.insert(&shot(path, mtime), &[line(text, 0.5)]).unwrap();
+        }
+        idx
+    }
+
+    #[test]
+    fn in_matches_folders_not_file_names() {
+        let hits = filed().search("code in:disc", 10).unwrap();
+        assert_eq!(
+            paths(&hits),
+            [
+                "C:\\Users\\me\\Pictures\\Discord\\win.png",
+                "/home/me/Pictures/Discord/otp.png"
+            ]
+        );
+        // The lit lines come from the words, never from the filter.
+        assert_eq!(hits[1].lines, [line("your code is 4821", 0.5)]);
+    }
+
+    #[test]
+    fn dates_narrow_by_when_it_was_taken() {
+        let idx = filed();
+        assert_eq!(
+            paths(&idx.search("code date:2026-08-15", 10).unwrap()),
+            ["/home/me/Pictures/Discord/otp.png"]
+        );
+        assert_eq!(
+            paths(&idx.search("code before:2026-08", 10).unwrap()),
+            ["/home/me/Pictures/Screenshots/otp.png"]
+        );
+        assert_eq!(
+            paths(&idx.search("code date:today", 10).unwrap()),
+            ["/home/me/Pictures/Screenshots/discord.png"]
+        );
+    }
+
+    #[test]
+    fn only_filters_lists_newest_first() {
+        let hits = filed().search("in:pictures after:2026-08", 10).unwrap();
+        assert_eq!(
+            paths(&hits),
+            [
+                "/home/me/Pictures/Screenshots/discord.png",
+                "C:\\Users\\me\\Pictures\\Discord\\win.png",
+                "/home/me/Pictures/Discord/otp.png",
+            ]
+        );
+        assert!(hits.iter().all(|h| h.lines.is_empty()));
+    }
+
+    #[test]
+    fn filters_narrow_near_matches_too() {
+        let mut idx = filed();
+        idx.insert(
+            &shot("/home/me/Pictures/Discord/misread.png", noon("2026-08-16")),
+            &[line("c0de sent", 0.5)],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/home/me/Pictures/Other/misread.png", noon("2026-08-16")),
+            &[line("c0de sent", 0.5)],
+        )
+        .unwrap();
+        let hits = idx.search("code in:discord date:2026-08", 10).unwrap();
+        let near: Vec<_> = hits
+            .iter()
+            .filter(|h| h.near)
+            .map(|h| h.path.to_str().unwrap())
+            .collect();
+        assert_eq!(near, ["/home/me/Pictures/Discord/misread.png"]);
     }
 }
