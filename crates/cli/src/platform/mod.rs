@@ -41,6 +41,18 @@ pub use imp::release_memory;
 /// Whether the machine is running on battery right now. Desktops never are.
 pub use imp::on_battery;
 
+/// How often a running reader looks over its folders on its own, where the
+/// system's file events can be lost without a word. None where they can't.
+pub use imp::RESCAN_EVERY;
+
+/// What the window should say when a folder can't be opened for lack of
+/// permission, with the folder already tidied for showing.
+pub use imp::denied;
+
+/// Sends stderr somewhere it can be read later when whoever started the
+/// reader left it nowhere.
+pub use imp::keep_a_log;
+
 /// Whether a file is only a placeholder for one in cloud storage (OneDrive's
 /// files on demand), which reading would download. Pictures is often synced
 /// to OneDrive on Windows, and reading would pull the whole library down.

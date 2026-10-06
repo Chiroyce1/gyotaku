@@ -31,6 +31,17 @@ pub fn become_idle() {
 /// The Windows heap gives freed pages back by itself.
 pub fn release_memory() {}
 
+/// ReadDirectoryChangesW reports a buffer overflow as such (a full look
+/// follows), so no timer is needed.
+pub const RESCAN_EVERY: Option<Duration> = None;
+
+pub fn denied(folder: &str) -> String {
+    format!("can't read {folder}, access denied")
+}
+
+/// The app starts the reader with its output going to watch.log already.
+pub fn keep_a_log() {}
+
 /// AC line status 0 means unplugged. Desktops report 1, or 255 (unknown)
 /// when there's no battery at all, and neither counts.
 pub fn on_battery() -> bool {

@@ -23,6 +23,56 @@ unsafe extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
 }
 
+/// FSEvents coalesces and, under load or after sleep, can lose events, so a
+/// running reader also looks over its folders now and then. A pass that
+/// finds nothing new is a directory walk and a lookup per file.
+pub const RESCAN_EVERY: Option<std::time::Duration> = Some(std::time::Duration::from_secs(180));
+
+/// Desktop, Documents and Downloads are behind macOS's privacy controls, and
+/// a reader started from launchd or Spotlight gets EPERM there until the
+/// person allows it.
+pub fn denied(folder: &str) -> String {
+    format!(
+        "macOS isn't letting gyotaku read {folder}. Allow it in System Settings > \
+         Privacy & Security > Files and Folders"
+    )
+}
+
+/// The app starts the reader with nowhere to write, so without this nothing
+/// it says is ever seen. When stderr is /dev/null it goes to watch.log in
+/// the data folder instead, started over once it passes 1 MB.
+pub fn keep_a_log() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let Ok(null) = std::fs::metadata("/dev/null") else {
+        return;
+    };
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(2, &mut stat) } != 0
+        || stat.st_rdev as u64 != null.rdev()
+        || stat.st_mode & libc::S_IFMT != libc::S_IFCHR
+    {
+        return;
+    }
+    let Ok(dir) = gyotaku_core::data_dir() else {
+        return;
+    };
+    let path = dir.join("watch.log");
+    let fresh = std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000);
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!fresh)
+        .write(true)
+        .truncate(fresh)
+        .open(&path)
+    else {
+        return;
+    };
+    unsafe {
+        libc::dup2(file.as_raw_fd(), 2);
+    }
+}
+
 // Cloud files. iCloud Drive evicts a file's contents and leaves a
 // placeholder with SF_DATALESS set in st_flags. Reading such a file starts
 // a download, so the indexer leaves it until it is back on disk.

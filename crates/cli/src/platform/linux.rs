@@ -25,6 +25,17 @@ pub fn release_memory() {
     }
 }
 
+/// inotify doesn't drop events without saying so (an overflow already
+/// triggers a full look), so there's no need to look again on a timer.
+pub const RESCAN_EVERY: Option<Duration> = None;
+
+pub fn denied(folder: &str) -> String {
+    format!("can't read {folder}, permission denied")
+}
+
+/// systemd keeps the reader's stderr in the journal.
+pub fn keep_a_log() {}
+
 /// Cloud folders on Linux (rclone, the GNOME and KDE clients) mount as
 /// ordinary files, with nothing to tell them apart.
 pub fn only_in_the_cloud(_: &std::fs::Metadata) -> bool {

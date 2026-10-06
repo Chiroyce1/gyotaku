@@ -37,18 +37,77 @@ struct Watch {
     /// Set when events may have been lost (the kernel's queue overflowed, or
     /// the watcher hit an error), so everything gets checked again.
     rescan: bool,
+    /// Each folder whose real path differs from the configured one, with
+    /// that real path. See `real_roots`.
+    roots: Vec<(PathBuf, PathBuf)>,
+}
+
+/// Each folder paired with its real path, where the two differ. FSEvents
+/// reports real paths: /private/var for a folder under /var, the target of a
+/// symlinked folder, iCloud's own folder for an iCloud Desktop. Matched
+/// against the folders as configured, none of those events would count.
+fn real_roots(folders: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
+    folders
+        .iter()
+        .filter_map(|folder| {
+            let real = folder.canonicalize().ok()?;
+            (real != *folder).then(|| (folder.clone(), real))
+        })
+        .collect()
+}
+
+/// A path from the file watcher as the folder it's in was configured, so a
+/// file goes by one name whether a scan or an event found it. The longest
+/// real path wins when folders nest.
+fn as_configured(roots: &[(PathBuf, PathBuf)], path: &Path) -> PathBuf {
+    roots
+        .iter()
+        .filter_map(|(folder, real)| {
+            let rest = path.strip_prefix(real).ok()?;
+            Some((real.as_os_str().len(), folder.join(rest)))
+        })
+        .max_by_key(|(len, _)| *len)
+        .map_or_else(|| path.to_path_buf(), |(_, path)| path)
+}
+
+/// Folders the system won't let this process open. On macOS that's the
+/// privacy controls over Desktop, Documents and Downloads, which otherwise
+/// fail without a word: no events, nothing listed.
+fn unreadable(folders: &[PathBuf]) -> Vec<PathBuf> {
+    folders
+        .iter()
+        .filter(|f| {
+            std::fs::read_dir(f).is_err_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+        })
+        .cloned()
+        .collect()
+}
+
+/// What the window shows once there's nothing left to read.
+fn idle_status(denied: &[PathBuf]) -> String {
+    match denied.first() {
+        Some(folder) => platform::denied(&gyotaku_core::tidy(folder)),
+        None => "up to date".into(),
+    }
 }
 
 /// Folders given on the command line are fixed. Without them the watcher
 /// follows the config file, so adding or removing a folder in the app takes
 /// effect here straight away, no restart.
 pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
+    platform::keep_a_log();
     let Some(_lock) = only_watcher()? else {
         eprintln!("another gyotaku watch is already running, leaving it to that one");
         return Ok(());
     };
     platform::become_idle();
     let config_path = Config::path()?;
+    // Events about the config file come under its real path too.
+    let config_real = config_path
+        .parent()
+        .and_then(|dir| dir.canonicalize().ok())
+        .zip(config_path.file_name())
+        .map(|(dir, name)| dir.join(name));
     let config = Config::load_or_default();
     let mut threads_now = threads.unwrap_or(config.threads);
     let mut scripts_now = config.scripts();
@@ -78,7 +137,13 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         last_from: None,
         arrived: Vec::new(),
         rescan: false,
+        roots: Vec::new(),
     };
+    w.roots = real_roots(&w.folders);
+    let mut denied = unreadable(&w.folders);
+    for folder in &denied {
+        eprintln!("not allowed to read {}", folder.display());
+    }
     w.forget_the_gone(follow_config);
 
     let (tx, rx) = mpsc::channel();
@@ -108,17 +173,29 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     let mut power = Power::default();
     // How far through the backlog, for the window: (done, of).
     let mut progress = (0, backlog.len());
-    status::set(if caught_up {
-        "up to date"
+    status::set(&if caught_up {
+        idle_status(&denied)
     } else {
-        "reading your screenshots"
+        "reading your screenshots".into()
     });
+    // When the folders were last looked over in full, for RESCAN_EVERY.
+    let mut looked = Instant::now();
 
     loop {
+        if platform::RESCAN_EVERY.is_some_and(|every| looked.elapsed() >= every) {
+            w.rescan = true;
+        }
         let mut config_changed = false;
         let mut take = |event: notify::Result<Event>, w: &mut Watch| match event {
-            Ok(event) => {
-                config_changed |= follow_config && event.paths.iter().any(|p| p == &config_path);
+            Ok(mut event) => {
+                for path in &mut event.paths {
+                    *path = as_configured(&w.roots, path);
+                }
+                config_changed |= follow_config
+                    && event
+                        .paths
+                        .iter()
+                        .any(|p| p == &config_path || Some(p) == config_real.as_ref());
                 w.on_event(event);
             }
             // Out of inotify watches for a new subfolder, a read error: some
@@ -141,7 +218,9 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 Duration::ZERO
             }
         } else {
-            Duration::from_secs(3600)
+            platform::RESCAN_EVERY.map_or(Duration::from_secs(3600), |every| {
+                every.saturating_sub(looked.elapsed())
+            })
         };
         match rx.recv_timeout(wait) {
             Ok(event) => take(event, &mut w),
@@ -212,7 +291,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                             scripts_now.len()
                         );
                         if caught_up {
-                            status::set("up to date");
+                            status::set(&idle_status(&denied));
                         }
                     }
                     Err(e) => {
@@ -222,12 +301,23 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 }
             }
             w.folders = folders;
+            w.roots = real_roots(&w.folders);
+            denied = unreadable(&w.folders);
         }
 
         // A folder that appeared brings files no event mentioned, and lost
         // events mean anything could have changed: both are found by looking.
         let look: Vec<PathBuf> = if std::mem::take(&mut w.rescan) {
             w.arrived.clear();
+            looked = Instant::now();
+            // A folder can come and go (a drive, a symlink retargeted), and
+            // so can permission to read it.
+            w.roots = real_roots(&w.folders);
+            let was = denied.len();
+            denied = unreadable(&w.folders);
+            if denied.len() != was && caught_up {
+                status::set(&idle_status(&denied));
+            }
             w.folders.clone()
         } else {
             std::mem::take(&mut w.arrived)
@@ -274,7 +364,7 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
         if backlog.is_empty() && !caught_up {
             caught_up = true;
             progress = (0, 0);
-            status::set("up to date");
+            status::set(&idle_status(&denied));
             eprintln!(
                 "caught up, {} screenshots searchable",
                 w.indexer.index.visible_len()?
@@ -599,5 +689,86 @@ fn forget(indexer: &mut Indexer, path: &Path) {
         Ok(true) => eprintln!("forgot {}", path.display()),
         Ok(false) => {}
         Err(e) => eprintln!("failed to forget {}: {e:#}", path.display()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("gyotaku-watch-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    // A symlinked folder is how this shows on Linux; on macOS the same
+    // happens to /var, which is really /private/var.
+    #[cfg(unix)]
+    #[test]
+    fn events_under_a_symlinked_folder_come_back_under_the_folder() {
+        let dir = scratch("link");
+        let real = dir.join("real");
+        let link = dir.join("link");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let roots = real_roots(std::slice::from_ref(&link));
+        assert_eq!(roots, [(link.clone(), real.clone())]);
+        assert_eq!(
+            as_configured(&roots, &real.join("sub/shot.png")),
+            link.join("sub/shot.png")
+        );
+        assert_eq!(as_configured(&roots, &real), link);
+        // Anything outside is left as it was.
+        let other = dir.join("elsewhere/shot.png");
+        assert_eq!(as_configured(&roots, &other), other);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn folders_that_are_already_real_need_no_mapping() {
+        let dir = scratch("plain");
+        assert!(real_roots(std::slice::from_ref(&dir)).is_empty());
+        // Nor do folders that aren't there.
+        assert!(real_roots(&[dir.join("missing")]).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nested_folders_map_by_the_deepest_one() {
+        let roots = vec![
+            (PathBuf::from("/a"), PathBuf::from("/real/a")),
+            (PathBuf::from("/b"), PathBuf::from("/real/a/inner")),
+        ];
+        assert_eq!(
+            as_configured(&roots, Path::new("/real/a/inner/x.png")),
+            PathBuf::from("/b/x.png")
+        );
+        assert_eq!(
+            as_configured(&roots, Path::new("/real/a/x.png")),
+            PathBuf::from("/a/x.png")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_without_permission_is_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("denied");
+        let locked = dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads anything, so there's nothing to check as root.
+        let as_root = std::fs::read_dir(&locked).is_ok();
+        if !as_root {
+            let denied = unreadable(&[locked.clone(), dir.clone()]);
+            assert_eq!(denied, std::slice::from_ref(&locked));
+            assert!(idle_status(&denied).contains("locked"));
+        }
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(idle_status(&[]), "up to date");
     }
 }
