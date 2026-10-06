@@ -87,6 +87,7 @@ function Card({
 // short title and two plain lines beside it.
 function Showcase({
   print,
+  printAlt,
   crop,
   credit,
   title,
@@ -98,6 +99,7 @@ function Showcase({
   children,
 }: {
   print: StaticImageData;
+  printAlt: string;
   // Which part of the print shows: how far it's enlarged, and around where.
   crop: { scale: number; origin: string };
   credit: ReactNode;
@@ -131,7 +133,7 @@ function Showcase({
         <div className="relative overflow-hidden rounded-[22px] sm:rounded-[28px]">
           <Image
             src={print}
-            alt=""
+            alt={printAlt}
             fill
             placeholder="blur"
             sizes="(min-width: 1024px) 600px, 100vw"
@@ -1551,6 +1553,7 @@ export function Features() {
         <div className="mt-16 flex flex-col gap-20 sm:mt-20 sm:gap-28">
           <Showcase
             print={suddenShower}
+            printAlt="Sudden Shower over Shin-Ōhashi Bridge and Atake, a woodblock print by Hiroshige"
             crop={{ scale: 1, origin: "50% 50%" }}
             credit={
               <>
@@ -1577,6 +1580,7 @@ export function Features() {
           <Showcase
             flip
             print={redFuji}
+            printAlt="Fine Wind, Clear Morning (Red Fuji), a woodblock print by Hokusai"
             crop={{ scale: 1.35, origin: "80% 35%" }}
             credit={
               <>
@@ -1597,6 +1601,7 @@ export function Features() {
 
           <Showcase
             print={redFuji}
+            printAlt="The sky of Fine Wind, Clear Morning (Red Fuji), a woodblock print by Hokusai"
             crop={{ scale: 2.3, origin: "8% 8%" }}
             credit={
               <>

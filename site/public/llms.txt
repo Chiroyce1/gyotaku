@@ -1,0 +1,38 @@
+# gyotaku
+
+> gyotaku is a free, open source desktop app that reads the text in every screenshot on your computer, so you can search your screenshots by any word you remember. It runs fully offline on macOS (Apple Silicon), Windows 10 and 11, and Linux (x86_64 and arm64, glibc 2.35 or newer). License: GPL-3.0.
+
+gyotaku does not take screenshots. It reads the ones you already save, in the folders you choose, with a local OCR model (PP-OCR on ONNX Runtime), and keeps a full-text index on your own disk. A global shortcut (Alt+Shift+S on Windows and macOS, any key you bind on Linux) opens a search window; results update on every keystroke with the matched words highlighted where they sit in the image. Nothing is uploaded: the only network access is a one-time download of the OCR model and ONNX Runtime, each checked against a pinned SHA-256 checksum. There is no account, telemetry or update check.
+
+## Features
+
+- Search every screenshot by the text inside it, as you type, in 1 to 10 ms per keystroke across 5,000+ screenshots
+- Finds words the OCR misread (for example "lnvoice" for "invoice"), listed after every exact match and marked as near matches
+- Filters by folder (`in:discord`) and date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
+- Folds bursts of near-identical screenshots into one result
+- Copy a screenshot's text, only the lines you select, or the image
+- Move many screenshots to the system trash at once, with undo
+- Reads English and other Latin-script languages, Chinese, Japanese and vertical text; Hindi, Marathi and Nepali are optional
+- Optionally saves images you copy to the clipboard so they become searchable (Linux and Windows)
+- Rebindable keyboard shortcuts, light and dark themes
+- No GPU needed; about 37 MB of memory while waiting, about 30 MB of disk per 1,000 screenshots
+
+## Install
+
+- macOS and Linux: `curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh`
+- Windows (PowerShell): `irm https://raw.githubusercontent.com/xevrion/gyotaku/main/install.ps1 | iex`
+- Windows setup, .deb and .rpm packages: https://github.com/xevrion/gyotaku/releases/latest
+
+## Pages
+
+- [Home](https://gyotaku.app/): live demo, features, measured numbers, install, privacy, FAQ
+- [gyotaku for Mac](https://gyotaku.app/mac): Apple Silicon, menu bar app, permissions, data locations
+- [gyotaku for Windows](https://gyotaku.app/windows): PowerShell install or setup, notification area icon, data locations
+- [gyotaku for Linux](https://gyotaku.app/linux): install script, .deb and .rpm, keyboard shortcut per desktop, data locations
+
+## Links
+
+- Source code: https://github.com/xevrion/gyotaku
+- Usage guide: https://github.com/xevrion/gyotaku/blob/main/docs/usage.md
+- Performance measurements: https://github.com/xevrion/gyotaku/blob/main/docs/performance.md
+- Author: xevrion (https://github.com/xevrion)

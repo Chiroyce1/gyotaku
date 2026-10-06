@@ -12,6 +12,8 @@ export type Tab = {
   command: string;
   note: string;
   update: string;
+  /** The page with everything about running gyotaku on this system. */
+  page: string;
 };
 
 export const TABS: Tab[] = [
@@ -24,6 +26,7 @@ export const TABS: Tab[] = [
     note: "x86_64 and arm64, on any distro with glibc 2.35 or newer.",
     update:
       "Run it again any time to update. The old window closes and the reader restarts on the new version.",
+    page: "/linux",
   },
   {
     id: "windows",
@@ -34,6 +37,7 @@ export const TABS: Tab[] = [
     note: "In PowerShell, on Windows 10 and 11. No admin needed.",
     update:
       "Run it again any time to update. It closes the running copy and opens the new one.",
+    page: "/windows",
   },
   {
     id: "macos",
@@ -44,6 +48,7 @@ export const TABS: Tab[] = [
     note: "In Terminal, on Apple Silicon Macs. No admin needed. Alt Shift S opens the search window.",
     update:
       "Run it again any time to update. The old window closes and the reader restarts on the new version.",
+    page: "/mac",
   },
 ];
 
@@ -158,6 +163,15 @@ export default function InstallTabs() {
               </div>
               <p className="mt-3 text-sm text-dim">{tab.note}</p>
               <p className="mt-1 text-sm text-dim">{tab.update}</p>
+              <a
+                href={tab.page}
+                className="group mt-4 inline-flex items-center gap-1.5 text-sm text-ink underline decoration-line-strong underline-offset-4 transition-[text-decoration-color] duration-150 hover:decoration-current"
+              >
+                More about gyotaku on {tab.label}
+                <svg viewBox="0 0 16 16" aria-hidden className="size-3 transition-[translate] duration-200 ease-out group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3.5 8h9M9 4.5 12.5 8 9 11.5" />
+                </svg>
+              </a>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -185,6 +199,21 @@ export function QuickCommand() {
         </code>
       </div>
       <CopyButton text={tab.command} primary />
+    </div>
+  );
+}
+
+// One command in a copyable box, for pages that show a single system.
+export function Command({ prompt, command }: { prompt: string; command: string }) {
+  return (
+    <div className="flex w-full items-center gap-1 rounded-[14px] bg-sunk p-1.5 pl-4">
+      <div className="min-w-0 flex-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <code className="whitespace-nowrap font-mono text-[13px] leading-none text-ink">
+          <span className="mr-2 select-none text-faint">{prompt}</span>
+          {command}
+        </code>
+      </div>
+      <CopyButton text={command} />
     </div>
   );
 }

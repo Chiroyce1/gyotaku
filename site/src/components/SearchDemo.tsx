@@ -112,7 +112,7 @@ function Tile({ shot, q, eager }: { shot: Shot; q: string; eager: boolean }) {
     >
       <Image
         src={shot.image}
-        alt=""
+        alt={`Example screenshot: ${shot.name}`}
         fill
         placeholder="blur"
         loading={eager ? "eager" : "lazy"}

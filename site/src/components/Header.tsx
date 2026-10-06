@@ -44,7 +44,9 @@ function useActiveSection() {
   return active;
 }
 
-export function Header({ stars = SAVED_STARS }: { stars?: number }) {
+// `base` is "/" on pages other than the home page, so the section links lead
+// back to the home page's sections instead of nowhere.
+export function Header({ stars = SAVED_STARS, base = "" }: { stars?: number; base?: string }) {
   const active = useActiveSection();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -84,7 +86,7 @@ export function Header({ stars = SAVED_STARS }: { stars?: number }) {
     <Row as="header" className="sticky top-0 z-40 bg-bg">
       <div className="grid h-16 grid-cols-[1fr_auto] items-center px-4 sm:px-6 md:grid-cols-[1fr_auto_1fr]">
         <a
-          href="#top"
+          href={base ? "/" : "#top"}
           onClick={() => setOpen(false)}
           className="press -mx-1.5 flex items-center gap-2.5 justify-self-start rounded-lg px-1.5 py-1 text-[15px] font-semibold tracking-[-0.01em] text-ink"
         >
@@ -96,7 +98,7 @@ export function Header({ stars = SAVED_STARS }: { stars?: number }) {
           {LINKS.map((l) => (
             <a
               key={l.label}
-              href={l.href}
+              href={l.href.startsWith("#") ? base + l.href : l.href}
               aria-current={l.id && active === l.id ? "true" : undefined}
               className="rounded-lg px-3 py-1.5 text-dim transition-colors duration-150 hover:text-ink aria-[current=true]:text-ink"
             >
@@ -116,7 +118,7 @@ export function Header({ stars = SAVED_STARS }: { stars?: number }) {
           </a>
           <ThemeToggle />
           <a
-            href="#install"
+            href={`${base}#install`}
             className="press ml-1.5 hidden h-9 items-center rounded-[10px] bg-ink px-4 text-[14px] font-medium text-bg sm:flex"
           >
             Install
@@ -164,7 +166,7 @@ export function Header({ stars = SAVED_STARS }: { stars?: number }) {
           {LINKS.map((l) => (
             <a
               key={l.label}
-              href={l.href}
+              href={l.href.startsWith("#") ? base + l.href : l.href}
               onClick={() => setOpen(false)}
               className="flex h-12 items-center border-b border-line text-[17px] text-ink transition-colors duration-150 last:border-b-0"
             >
@@ -173,7 +175,7 @@ export function Header({ stars = SAVED_STARS }: { stars?: number }) {
           ))}
           <div className="mt-4 flex items-center gap-2">
             <a
-              href="#install"
+              href={`${base}#install`}
               onClick={() => setOpen(false)}
               className="press flex h-11 flex-1 items-center justify-center rounded-[12px] bg-ink text-[15px] font-medium text-bg"
             >

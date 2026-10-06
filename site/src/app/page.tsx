@@ -1,14 +1,14 @@
 import Image from "next/image";
-import { Faq } from "@/components/Faq";
+import { FAQ, Faq } from "@/components/Faq";
+import { JsonLd, SITE_GRAPH, faqPage } from "@/components/JsonLd";
 import { Row } from "@/components/Frame";
 import { Features } from "@/components/Features";
-import { GithubIcon, Header } from "@/components/Header";
+import { Header } from "@/components/Header";
 import { HeroInstall } from "@/components/HeroInstall";
 import InstallTabs from "@/components/InstallTabs";
-import { Mark } from "@/components/Mark";
 import Numbers from "@/components/Numbers";
 import SearchDemo from "@/components/SearchDemo";
-import { StarCount } from "@/components/GithubStars";
+import { SiteFooter } from "@/components/SiteFooter";
 import { REPO, REPO_SLUG, SAVED_STARS } from "@/lib/links";
 import greatWave from "@/assets/prints/great-wave.jpg";
 
@@ -81,7 +81,7 @@ export default async function Home() {
 
           <p className="mt-5 max-w-[34rem] text-[17px] leading-relaxed text-dim sm:text-lg">
             gyotaku reads the text in every screenshot on your computer, so you
-            can find any of them by typing a word you remember. Free, open
+            can search your screenshots by any word you remember. Free, open
             source and fully offline.
           </p>
 
@@ -98,7 +98,7 @@ export default async function Home() {
           <div className="relative overflow-hidden rounded-[18px] sm:rounded-[22px]">
             <Image
               src={greatWave}
-              alt=""
+              alt="The Great Wave off Kanagawa, a woodblock print by Hokusai"
               fill
               priority
               placeholder="blur"
@@ -187,48 +187,8 @@ export default async function Home() {
         </Row>
       </main>
 
-      <Row as="footer" divider={false} inner={`${INSET} pt-12 pb-16`}>
-        <div className="flex flex-col gap-8 text-sm text-dim sm:flex-row sm:justify-between">
-          <div className="max-w-sm">
-            <div className="flex items-center gap-2.5 font-medium text-ink">
-              <Mark size={22} className="rounded-[6px]" />
-              gyotaku
-            </div>
-            <p className="mt-3 leading-relaxed">
-              Gyotaku (魚拓) is the Japanese way of keeping a catch: the fish is
-              inked and pressed onto paper. This keeps your screenshots&apos;
-              words the same way.
-            </p>
-            <p className="mt-3">
-              GPL-3.0 · made by{" "}
-              <a href="https://github.com/xevrion" className="text-ink underline decoration-line-strong underline-offset-4 transition-[text-decoration-color] duration-150 hover:decoration-current">
-                xevrion
-              </a>
-            </p>
-          </div>
-          <nav aria-label="Links" className="grid grid-cols-2 gap-x-10 gap-y-2 self-start">
-            <FooterLink href={REPO}>
-              <span className="inline-flex items-center gap-1.5">
-                <GithubIcon className="size-3.5" />
-                <StarCount repo={REPO_SLUG} saved={saved} />
-              </span>
-            </FooterLink>
-            <FooterLink href={`${REPO}/releases`}>Releases</FooterLink>
-            <FooterLink href={`${REPO}/blob/main/docs/usage.md`}>Docs</FooterLink>
-            <FooterLink href={`${REPO}/issues`}>Issues</FooterLink>
-            <FooterLink href={`${REPO}#roadmap`}>Roadmap</FooterLink>
-            <FooterLink href="#top">Back to top</FooterLink>
-          </nav>
-        </div>
-      </Row>
+      <SiteFooter stars={saved} />
+      <JsonLd graph={[...SITE_GRAPH, faqPage(FAQ)]} />
     </>
-  );
-}
-
-function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a href={href} className="py-1 transition-colors duration-150 hover:text-ink">
-      {children}
-    </a>
   );
 }

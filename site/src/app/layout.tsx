@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
-import { JsonLd } from "@/components/JsonLd";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import { themeScript } from "@/components/ThemeToggle";
 import { AUTHOR_URL, DESCRIPTION, SITE_URL, TITLE } from "@/lib/site";
@@ -30,9 +29,10 @@ export const metadata: Metadata = {
   keywords: [
     "screenshot search",
     "search screenshots by text",
+    "screenshot search app",
     "OCR screenshot search",
     "find text in screenshots",
-    "offline OCR",
+    "search text in images offline",
     "macOS",
     "Linux",
     "Windows",
@@ -91,7 +91,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </Script>
       </head>
       <body className="min-h-dvh">
-        <JsonLd />
         <SmoothScroll />
         {children}
         <Analytics />

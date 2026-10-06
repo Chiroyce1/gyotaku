@@ -12,6 +12,7 @@ export const AUTHOR_URL = "https://github.com/xevrion";
 // version in ../Cargo.toml when a release goes out.
 export const APP_VERSION = "0.1.4";
 
-export const TITLE = "gyotaku: search the text in your screenshots";
+export const TITLE = "gyotaku: search your screenshots by text, offline";
+// Written to fit a search result snippet (about 155 characters).
 export const DESCRIPTION =
-  "Free, open source app that reads the text in every screenshot on your machine, so you can find any of them by typing a word you remember. Fully offline, for macOS, Windows and Linux.";
+  "Search your screenshots by the text in them. Free, open source and offline, gyotaku finds any screenshot from a word you remember. macOS, Windows, Linux.";
