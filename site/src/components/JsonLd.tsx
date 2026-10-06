@@ -20,7 +20,7 @@ const data = {
       url: SITE_URL,
       image: `${SITE_URL}/opengraph-image`,
       applicationCategory: "UtilitiesApplication",
-      operatingSystem: "Linux, Windows",
+      operatingSystem: "macOS, Windows, Linux",
       softwareVersion: APP_VERSION,
       downloadUrl: RELEASES_URL,
       license: "https://www.gnu.org/licenses/gpl-3.0.html",

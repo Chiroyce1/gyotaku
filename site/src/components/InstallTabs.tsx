@@ -8,10 +8,10 @@ export type Os = "linux" | "windows" | "macos";
 export type Tab = {
   id: Os;
   label: string;
-  prompt?: string;
-  command?: string;
+  prompt: string;
+  command: string;
   note: string;
-  update?: string;
+  update: string;
 };
 
 export const TABS: Tab[] = [
@@ -38,7 +38,12 @@ export const TABS: Tab[] = [
   {
     id: "macos",
     label: "macOS",
-    note: "Coming soon, a port is in review.",
+    prompt: "$",
+    command:
+      "curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh",
+    note: "In Terminal, on Apple Silicon Macs. No admin needed. Alt Shift S opens the search window.",
+    update:
+      "Run it again any time to update. The old window closes and the reader restarts on the new version.",
   },
 ];
 
@@ -142,32 +147,17 @@ export default function InstallTabs() {
               animate={{ opacity: 1, filter: "blur(0px)", transform: "translateY(0px)" }}
               exit={{ opacity: 0, filter: "blur(4px)", transform: "translateY(-4px)" }}
             >
-              {tab.command ? (
-                <>
-                  <div className="flex items-center gap-1 rounded-[14px] bg-sunk p-1.5 pl-4">
-                    <div className="min-w-0 flex-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                      <code className="whitespace-nowrap font-mono text-[13px] leading-none text-ink">
-                        <span className="mr-2 select-none text-faint">{tab.prompt}</span>
-                        {tab.command}
-                      </code>
-                    </div>
-                    <CopyButton text={tab.command} />
-                  </div>
-                  <p className="mt-3 text-sm text-dim">{tab.note}</p>
-                  <p className="mt-1 text-sm text-dim">{tab.update}</p>
-                </>
-              ) : (
-                <div className="rounded-[14px] bg-sunk px-4 py-3.5 text-sm text-dim">
-                  {tab.note}{" "}
-                  <a
-                    href="https://github.com/xevrion/gyotaku/pull/3"
-                    className="text-ink underline decoration-line underline-offset-4 transition-[text-decoration-color] duration-150 hover:decoration-shu"
-                  >
-                    Follow it on GitHub
-                  </a>
-                  .
+              <div className="flex items-center gap-1 rounded-[14px] bg-sunk p-1.5 pl-4">
+                <div className="min-w-0 flex-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <code className="whitespace-nowrap font-mono text-[13px] leading-none text-ink">
+                    <span className="mr-2 select-none text-faint">{tab.prompt}</span>
+                    {tab.command}
+                  </code>
                 </div>
-              )}
+                <CopyButton text={tab.command} />
+              </div>
+              <p className="mt-3 text-sm text-dim">{tab.note}</p>
+              <p className="mt-1 text-sm text-dim">{tab.update}</p>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -185,21 +175,6 @@ export function QuickCommand() {
     setOs(detect());
   }, []);
   const tab = TABS.find((t) => t.id === os)!;
-
-  if (!tab.command) {
-    return (
-      <p className="text-dim">
-        macOS is on the way.{" "}
-        <a
-          href="https://github.com/xevrion/gyotaku/pull/3"
-          className="text-ink underline decoration-line underline-offset-4 transition-[text-decoration-color] duration-150 hover:decoration-shu"
-        >
-          Follow the port on GitHub
-        </a>
-        .
-      </p>
-    );
-  }
 
   return (
     <div className="flex w-full max-w-xl items-center gap-1 rounded-[14px] bg-sunk p-1.5 pl-4">

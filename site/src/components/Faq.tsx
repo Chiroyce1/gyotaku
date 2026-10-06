@@ -24,7 +24,7 @@ const ITEMS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Which systems does it run on?",
-    a: "Linux on x86_64 and arm64 with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora, Arch, openSUSE and so on), and Windows 10 and 11. A macOS port is in review.",
+    a: "macOS on Apple Silicon Macs, Windows 10 and 11, and Linux on x86_64 and arm64 with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora, Arch, openSUSE and so on). Intel Macs need a build from source for now.",
   },
   {
     q: "Does it need a GPU, or slow my computer down?",
@@ -43,8 +43,8 @@ const ITEMS: { q: string; a: React.ReactNode }[] = [
     a: (
       <>
         Run the install command again with <code className="rounded bg-sunk px-1.5 py-0.5 font-mono text-[0.9em] text-ink">--uninstall</code>{" "}
-        on Linux, or remove it from Settings &gt; Apps on Windows. The README has
-        the exact commands.
+        on macOS or Linux, or remove it from Settings &gt; Apps on Windows. The
+        README has the exact commands.
       </>
     ),
   },

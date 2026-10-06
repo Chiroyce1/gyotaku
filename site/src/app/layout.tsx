@@ -33,6 +33,7 @@ export const metadata: Metadata = {
     "OCR screenshot search",
     "find text in screenshots",
     "offline OCR",
+    "macOS",
     "Linux",
     "Windows",
     "open source",

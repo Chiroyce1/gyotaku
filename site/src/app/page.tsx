@@ -28,7 +28,7 @@ async function stars(): Promise<number> {
   }
 }
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 // Everything gyotaku ever does over the network. Kept honest with the
 // README's Privacy section.
@@ -82,7 +82,7 @@ export default async function Home() {
             <HeroInstall />
           </div>
 
-          <p className="mt-4 text-[13px] text-faint">Linux and Windows · macOS port in review</p>
+          <p className="mt-4 text-[13px] text-faint">macOS, Windows and Linux</p>
         </section>
 
         {/* The product, live, on Hokusai's Great Wave: a woodblock print, the

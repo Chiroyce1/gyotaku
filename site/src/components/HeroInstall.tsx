@@ -6,11 +6,10 @@ import { Arrow } from "./Arrow";
 import { detect, onPhone, TABS, type Os } from "./InstallTabs";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 
-// The hero's main button already knows your system. On Linux and Windows one
-// press copies the install command and the button turns into the next
-// instruction, so nobody has to scroll to find it. On a Mac it points at the
-// port in review; on a phone it says to come back on a computer, and takes
-// you to the install section instead.
+// The hero's main button already knows your system. On macOS, Windows and
+// Linux one press copies the install command and the button turns into the
+// next instruction, so nobody has to scroll to find it. On a phone it says
+// to come back on a computer, and takes you to the install section instead.
 
 type Mode = Os | "phone" | null;
 
@@ -34,11 +33,10 @@ export function HeroInstall() {
   const tab = mode && mode !== "phone" ? TABS.find((t) => t.id === mode) : undefined;
   const name = tab?.label;
 
-  // Before detection (and on the server), and for phones and Macs: a plain
-  // link down to the install section, which has every option.
-  if (!tab?.command) {
-    const label =
-      mode === "macos" ? "macOS is on the way" : mode === "phone" ? "Install on your computer" : "Install gyotaku";
+  // Before detection (and on the server), and for phones: a plain link down
+  // to the install section, which has every option.
+  if (!tab) {
+    const label = mode === "phone" ? "Install on your computer" : "Install gyotaku";
     return (
       <a
         href="#install"
@@ -57,7 +55,7 @@ export function HeroInstall() {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(tab.command!);
+      await navigator.clipboard.writeText(tab.command);
     } catch {
       // No clipboard (an insecure context, or denied): show it instead.
       document.getElementById("install")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
@@ -120,7 +118,8 @@ export function HeroInstall() {
           <>Into {tab.id === "windows" ? "PowerShell" : "a terminal"}, then press Enter.</>
         ) : (
           <>
-            Copies one line for {tab.id === "windows" ? "PowerShell" : "your terminal"}.{" "}
+            Copies one line for {tab.id === "windows" ? "PowerShell" : "your terminal"}
+            {tab.id === "macos" ? ", for Apple Silicon Macs" : ""}.{" "}
             <a href="#install" className="underline decoration-line underline-offset-4 transition-[text-decoration-color,color] duration-150 hover:text-ink hover:decoration-current">
               See it first
             </a>
