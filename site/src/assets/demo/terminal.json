@@ -1,0 +1,70 @@
+{
+  "id": "terminal",
+  "name": "a terminal with a build error",
+  "lines": [
+    {
+      "x": 0.535,
+      "y": 0.017,
+      "w": 0.052,
+      "h": 0.044,
+      "score": 1,
+      "text": "zsh"
+    },
+    {
+      "x": 0.027,
+      "y": 0.127,
+      "w": 0.22,
+      "h": 0.049,
+      "score": 0.99,
+      "text": "$ cargo build"
+    },
+    {
+      "x": 0.079,
+      "y": 0.188,
+      "w": 0.365,
+      "h": 0.044,
+      "score": 1,
+      "text": "Compiling shots v0.1.0"
+    },
+    {
+      "x": 0.03,
+      "y": 0.239,
+      "w": 0.889,
+      "h": 0.051,
+      "score": 0.98,
+      "text": "error[E0425]: cannot find value `config in this scope"
+    },
+    {
+      "x": 0.077,
+      "y": 0.3,
+      "w": 0.299,
+      "h": 0.044,
+      "score": 0.97,
+      "text": "→ src/main.rs:2:16"
+    },
+    {
+      "x": 0.161,
+      "y": 0.411,
+      "w": 0.59,
+      "h": 0.047,
+      "score": 0.99,
+      "text": "let path = config.screenshots_dir();"
+    },
+    {
+      "x": 0.336,
+      "y": 0.464,
+      "w": 0.503,
+      "h": 0.056,
+      "score": 0.91,
+      "text": "^^^^^^ not found in this scope"
+    },
+    {
+      "x": 0.029,
+      "y": 0.583,
+      "w": 0.516,
+      "h": 0.044,
+      "score": 0.96,
+      "text": "error: could not compile `shots"
+    }
+  ]
+}

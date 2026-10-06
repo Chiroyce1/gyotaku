@@ -1,0 +1,46 @@
+{
+  "id": "otp",
+  "name": "a bank text message",
+  "lines": [
+    {
+      "x": 0.415,
+      "y": 0.173,
+      "w": 0.171,
+      "h": 0.042,
+      "score": 1,
+      "text": "AX-NOVABK"
+    },
+    {
+      "x": 0.428,
+      "y": 0.316,
+      "w": 0.142,
+      "h": 0.045,
+      "score": 1,
+      "text": "Today 09:41"
+    },
+    {
+      "x": 0.061,
+      "y": 0.424,
+      "w": 0.592,
+      "h": 0.059,
+      "score": 1,
+      "text": "Your OTP is 482913 for login to Nova"
+    },
+    {
+      "x": 0.063,
+      "y": 0.488,
+      "w": 0.555,
+      "h": 0.056,
+      "score": 1,
+      "text": "Bank. Do not share it with anyone."
+    },
+    {
+      "x": 0.719,
+      "y": 0.637,
+      "w": 0.218,
+      "h": 0.06,
+      "score": 1,
+      "text": "got it, thanks"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "map",
+  "name": "a delivery address on a map",
+  "lines": [
+    {
+      "x": 0.067,
+      "y": 0.742,
+      "w": 0.261,
+      "h": 0.04,
+      "score": 1,
+      "text": "DELIVERY ADDRESS"
+    },
+    {
+      "x": 0.065,
+      "y": 0.794,
+      "w": 0.289,
+      "h": 0.063,
+      "score": 0.97,
+      "text": "221 Lake Road"
+    },
+    {
+      "x": 0.066,
+      "y": 0.867,
+      "w": 0.489,
+      "h": 0.051,
+      "score": 0.98,
+      "text": "Jodhpur 342030 · call on arrival"
+    }
+  ]
+}

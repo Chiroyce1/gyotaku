@@ -1,0 +1,38 @@
+{
+  "id": "wifi",
+  "name": "a Wi-Fi card",
+  "lines": [
+    {
+      "x": 0.058,
+      "y": 0.083,
+      "w": 0.285,
+      "h": 0.069,
+      "score": 1,
+      "text": "Guest Wi-Fi"
+    },
+    {
+      "x": 0.055,
+      "y": 0.168,
+      "w": 0.528,
+      "h": 0.054,
+      "score": 1,
+      "text": "Welcome! Scan the code or type it in."
+    },
+    {
+      "x": 0.093,
+      "y": 0.334,
+      "w": 0.384,
+      "h": 0.059,
+      "score": 1,
+      "text": "Network: fernhouse-5g"
+    },
+    {
+      "x": 0.095,
+      "y": 0.477,
+      "w": 0.418,
+      "h": 0.049,
+      "score": 1,
+      "text": "Password: lemon-tree-42"
+    }
+  ]
+}
