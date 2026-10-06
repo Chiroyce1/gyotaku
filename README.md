@@ -46,7 +46,20 @@ It also runs without a GPU, using software rendering. All figures were measured 
 curl -fsSL https://raw.githubusercontent.com/xevrion/gyotaku/main/install.sh | sh
 ```
 
-The script downloads the latest release for your machine, verifies its SHA-256 checksum and installs `gyotaku` and `gyotaku-app` to `~/.local/bin`. It needs no root access and changes nothing outside your home directory. On a first install it opens gyotaku so you can choose your screenshot folders, then shows how to add a keyboard shortcut for your desktop.
+The script downloads the latest release for your machine, verifies its SHA-256 checksum and installs `gyotaku` and `gyotaku-app` to `~/.local/bin`, with an entry in your app launcher. It needs no root access and changes nothing outside your home directory. On a first install it opens gyotaku so you can choose your screenshot folders, then shows how to add a keyboard shortcut for your desktop.
+
+Each release also has a `.deb` for Debian and Ubuntu and an `.rpm` for Fedora and openSUSE, which install to `/usr/bin` through your package manager:
+
+```sh
+# Debian, Ubuntu (replace x86_64 with aarch64 on ARM)
+curl -fsSLO https://github.com/xevrion/gyotaku/releases/latest/download/gyotaku-x86_64-linux.deb
+sudo apt install ./gyotaku-x86_64-linux.deb
+
+# Fedora
+sudo dnf install https://github.com/xevrion/gyotaku/releases/latest/download/gyotaku-x86_64-linux.rpm
+```
+
+These don't update on their own yet; install the newer one the same way. More packages are on the way, see [packaging](packaging).
 
 Release builds run on x86_64 and ARM64 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36, Linux Mint 21, Pop!_OS 22.04 and later, as well as Kali, Arch Linux and openSUSE Tumbleweed. Anything else can [build from source](#build-from-source).
 

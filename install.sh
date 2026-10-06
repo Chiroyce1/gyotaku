@@ -74,10 +74,27 @@ stop_background() {
     fi
 }
 
+APP_ID="dev.xevrion.gyotaku"
+ICON_SIZES="16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512"
+
+refresh_menus() {
+    has update-desktop-database && update-desktop-database -q "$DATA_HOME/applications" 2>/dev/null || true
+    has gtk-update-icon-cache && gtk-update-icon-cache -q -t "$DATA_HOME/icons/hicolor" 2>/dev/null || true
+}
+
+remove_menu_entry() {
+    rm -f "$DATA_HOME/applications/$APP_ID.desktop" "$DATA_HOME/icons/hicolor/scalable/apps/$APP_ID.svg"
+    for size in $ICON_SIZES; do
+        rm -f "$DATA_HOME/icons/hicolor/$size/apps/$APP_ID.png"
+    done
+    refresh_menus
+}
+
 uninstall() {
     step "Removing gyotaku"
     stop_background
     rm -f "$BIN_DIR/gyotaku" "$BIN_DIR/gyotaku-app"
+    remove_menu_entry
     say "Removed the programs from $BIN_DIR."
     say ""
     say "Your screenshots were not touched. The index, settings and thumbnails are"
@@ -141,6 +158,22 @@ for bin in gyotaku gyotaku-app; do
     chmod 755 "$BIN_DIR/.$bin.new"
     mv -f "$BIN_DIR/.$bin.new" "$BIN_DIR/$bin"
 done
+
+# The menu entry and icon, so gyotaku shows up in the app launcher. Its Exec
+# is the full path, since launchers don't all search ~/.local/bin. Releases
+# before 0.1.3 didn't carry these.
+share="$tmp/$name/share"
+if [ -f "$share/applications/$APP_ID.desktop" ]; then
+    mkdir -p "$DATA_HOME/applications"
+    sed "s|^Exec=gyotaku-app|Exec=$BIN_DIR/gyotaku-app|" "$share/applications/$APP_ID.desktop" \
+        >"$DATA_HOME/applications/$APP_ID.desktop"
+    for icon in "$share"/icons/hicolor/*/apps/*; do
+        dest="$DATA_HOME/${icon#"$share"/}"
+        mkdir -p "$(dirname "$dest")"
+        cp "$icon" "$dest"
+    done
+    refresh_menus
+fi
 
 # A background reader set up by an earlier install whose program is gone
 # (a build from source that was uninstalled, say) would fail every 30
