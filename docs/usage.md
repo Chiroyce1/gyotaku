@@ -27,6 +27,32 @@ Open the search window with your shortcut and start typing. Results update on ev
 
 While a query is active, each thumbnail is dimmed and the matched lines are highlighted in place.
 
+### Filters
+
+A word of the form `key:value` with one of the keys below narrows the results by where or when a screenshot was taken. Filters combine with words and with each other, and are shown dimmed in the search box once they are complete. A query made only of filters, such as `date:today`, lists every screenshot they allow, newest first.
+
+| Filter | Matches |
+|---|---|
+| `in:<name>` | Screenshots inside a folder whose name starts with `<name>`, at any depth and ignoring case: `in:disc` for a `Discord` folder. Quote names with spaces: `in:"my shots"`. |
+| `date:<when>` | Screenshots taken during that time. |
+| `before:<when>` | Screenshots taken before it starts. |
+| `after:<when>` | Screenshots taken from the time it starts onward. `after:2026-08` includes August. |
+
+`<when>` is one of:
+
+| Value | Means |
+|---|---|
+| `today`, `yesterday` | That day, in your local time. |
+| `week`, `month` | The last 7 or 30 days, including today. |
+| `2026-08-01`, `2026-08`, `2026` | That day, month or year. |
+| `aug`, `august` | The most recent August: this year's if it has started, otherwise last year's. Any three or more letters of a month name work. |
+
+"Taken" means the file's modification time, which is when it was saved unless it was edited afterwards.
+
+Words with a colon that aren't one of these keys, like `https://`, `12:30` or `error:`, are searched as text, and so are bare words like `today`. A filter that isn't finished yet, such as `date:yes` on the way to `yesterday`, is ignored rather than searched for, so the results don't empty while you type it.
+
+There is no `app:` filter: a screenshot file records nothing about the app it was taken in, and the names screenshot tools give their files don't either.
+
 ## Keyboard shortcuts
 
 | Key | Result grid | Open screenshot |
@@ -140,7 +166,7 @@ Because only the background indexer watches the clipboard, copied images are sav
 
 | Command | Description |
 |---|---|
-| `gyotaku search <words>...` | Print matching screenshot paths and the lines that matched. `-n, --limit <n>` sets the maximum number of results (default 20). |
+| `gyotaku search <words>...` | Print matching screenshot paths and the lines that matched. Accepts the same [filters](#filters) as the search window; quote one with spaces for the shell, `'in:"my shots"'`. `-n, --limit <n>` sets the maximum number of results (default 20). |
 | `gyotaku stats` | Print file locations and the number of indexed screenshots. |
 | `gyotaku ocr <image>` | Read one image and print its text without indexing it. `--boxes` also prints each line's bounding box and confidence. |
 | `gyotaku index [folders]...` | Index the given folders, or the configured folders, then exit. |

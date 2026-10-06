@@ -192,7 +192,7 @@ If anything does not work as described, see [Troubleshooting](docs/troubleshooti
 | Ctrl+Shift+A, Ctrl+Delete | Mark every result, then move them to the trash. Ctrl+Z puts them back. |
 | Escape | Clear the search, then close |
 
-Every word in a query must appear somewhere in the screenshot, not necessarily on the same line. On an open screenshot, drag a box to copy only the lines inside it.
+Every word in a query must appear somewhere in the screenshot, not necessarily on the same line. Filters narrow it down by folder and date: `otp in:discord date:week`. On an open screenshot, drag a box to copy only the lines inside it.
 
 A command-line interface is also available:
 
@@ -221,7 +221,8 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [x] A keyboard shortcuts page in settings that lists every shortcut and lets each one be rebound by pressing the new keys
 - [ ] Screenshots that only ever go to the clipboard: an opt-in setting that saves images copied to the clipboard into a folder of their own, so they become searchable like any other screenshot
 - [ ] Group bursts of near-identical screenshots
-- [ ] Search filters such as `app:`, `in:` and dates like `yesterday`
+- [x] Search filters for the folder (`in:discord`) and the date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
+- [ ] An `app:` filter, which first needs a way to know which app a screenshot was taken in: the file itself doesn't say
 - [ ] More scripts, starting with Devanagari, and vertical text
 - [ ] Handwriting: measure how well neat and messy handwritten notes read, and add an optional handwriting pass if it's worth it
 
