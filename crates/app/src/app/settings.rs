@@ -11,7 +11,7 @@ use gpui::{
     Focusable as _, FontWeight, KeyDownEvent, MouseMoveEvent, PathPromptOptions, ScrollHandle,
     SharedString, Window, div, ease_out_quint, prelude::*, px,
 };
-use gyotaku_core::{Config, ThemeChoice, tidy};
+use gyotaku_core::{Config, Script, ThemeChoice, tidy};
 
 use super::{Gyotaku, Page, hint, thousands};
 use crate::keys::{self, SHORTCUTS};
@@ -52,6 +52,8 @@ enum Row {
     Theme,
     Background,
     Clipboard,
+    /// An extra writing system to read, by its place in `Script::ALL`.
+    Script(usize),
     Threads,
     ClearThumbs,
     Shortcut(usize),
@@ -60,14 +62,9 @@ enum Row {
 impl Settings {
     fn rows(&self) -> Vec<Row> {
         let mut rows: Vec<Row> = (0..self.config.folders.len()).map(Row::Folder).collect();
-        rows.extend([
-            Row::AddFolder,
-            Row::Theme,
-            Row::Background,
-            Row::Clipboard,
-            Row::Threads,
-            Row::ClearThumbs,
-        ]);
+        rows.extend([Row::AddFolder, Row::Theme, Row::Background, Row::Clipboard]);
+        rows.extend((0..Script::ALL.len()).map(Row::Script));
+        rows.extend([Row::Threads, Row::ClearThumbs]);
         rows.extend((0..SHORTCUTS.len()).map(Row::Shortcut));
         rows
     }
@@ -247,6 +244,7 @@ impl Gyotaku {
                             }
                             Some(Row::Background) => self.set_background(forward, cx),
                             Some(Row::Clipboard) => self.set_clipboard(forward, cx),
+                            Some(Row::Script(i)) => self.set_script(i, forward, cx),
                             _ => {}
                         }
                     }
@@ -260,6 +258,10 @@ impl Gyotaku {
                         Some(Row::Clipboard) => {
                             let on = s.config.clipboard;
                             self.set_clipboard(!on, cx)
+                        }
+                        Some(Row::Script(i)) => {
+                            let on = s.config.scripts().contains(&Script::ALL[i]);
+                            self.set_script(i, !on, cx)
                         }
                         Some(Row::Threads) => self.change_threads(1, cx),
                         Some(Row::ClearThumbs) => self.clear_thumbnails(cx),
@@ -519,6 +521,18 @@ impl Gyotaku {
         if config.clipboard_folder.is_none() {
             config.clipboard_folder = config.clipboard_folder();
         }
+        self.save(config, cx);
+    }
+
+    /// Like the clipboard, the reader follows the config: it downloads the
+    /// script's model and starts using it on the next screenshot.
+    fn set_script(&mut self, i: usize, on: bool, cx: &mut Context<Self>) {
+        let mut config = self.current_config();
+        let script = Script::ALL[i];
+        if config.scripts().contains(&script) == on {
+            return;
+        }
+        config.set_script(script, on);
         self.save(config, cx);
     }
 
@@ -824,6 +838,22 @@ impl Gyotaku {
                                 .child(div().text_xs().text_color(theme.muted).child(detail)),
                         )
                         .child(switch("clipboard", config.clipboard, theme))
+                        .into_any_element()
+                }
+                Row::Script(i) => {
+                    let script = Script::ALL[i];
+                    let on = config.scripts().contains(&script);
+                    let (name, detail) = script_words(script, on);
+                    self.row(ix, selected, theme, cx, Key::Enter)
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .child(name)
+                                .child(div().text_xs().text_color(theme.muted).child(detail)),
+                        )
+                        .child(switch(("script", i), on, theme))
                         .into_any_element()
                 }
                 Row::Threads => {
@@ -1143,6 +1173,21 @@ impl Gyotaku {
                     .child(footer),
             )
             .into_any_element()
+    }
+}
+
+/// A script's settings row: its name, and what turning it on does. Screenshots
+/// already read aren't read again, that would be the whole library over.
+fn script_words(script: Script, on: bool) -> (&'static str, &'static str) {
+    match (script, on) {
+        (Script::Devanagari, false) => (
+            "read Devanagari",
+            "Hindi, Marathi, Nepali and more, an 8 MB download",
+        ),
+        (Script::Devanagari, true) => (
+            "read Devanagari",
+            "on for new screenshots, ones read before stay as they were",
+        ),
     }
 }
 

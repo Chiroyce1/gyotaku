@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gyotaku_core::{Config, Index};
+use gyotaku_core::{Config, Index, Script};
 use gyotaku_ocr::Ocr;
 
 use indexer::{Indexer, Outcome};
@@ -53,6 +53,10 @@ enum Command {
         boxes: bool,
         #[arg(long, default_value_t = gyotaku_core::default_threads())]
         threads: usize,
+        /// Also read this script, like `--script devanagari` (default: the
+        /// ones in your config)
+        #[arg(long = "script")]
+        scripts: Vec<String>,
     },
     /// Run by the clipboard watcher for each image copied, see clipboard::hand_over
     #[command(hide = true)]
@@ -107,14 +111,30 @@ fn main() -> Result<()> {
             image,
             boxes,
             threads,
-        } => ocr(&image, boxes, threads)?,
+            scripts,
+        } => {
+            let scripts = if scripts.is_empty() {
+                Config::load_or_default().scripts()
+            } else {
+                scripts
+                    .iter()
+                    .map(|n| {
+                        Script::from_name(n).ok_or_else(|| {
+                            let known: Vec<&str> = Script::ALL.iter().map(|s| s.name()).collect();
+                            anyhow::anyhow!("no script called {n}, there's {}", known.join(", "))
+                        })
+                    })
+                    .collect::<Result<_>>()?
+            };
+            ocr(&image, boxes, threads, &scripts)?
+        }
         Command::ClipboardIncoming { dir } => clipboard::hand_over(&dir)?,
     }
     Ok(())
 }
 
 fn index(dirs: &[PathBuf], threads: usize) -> Result<()> {
-    let mut indexer = Indexer::new(threads)?;
+    let mut indexer = Indexer::new(threads, &Config::load_or_default().scripts())?;
     let files = indexer::scan(dirs);
     let total = files.len();
     let started = Instant::now();
@@ -162,9 +182,9 @@ fn human(secs: u64) -> String {
     }
 }
 
-fn ocr(path: &Path, boxes: bool, threads: usize) -> Result<()> {
+fn ocr(path: &Path, boxes: bool, threads: usize, scripts: &[Script]) -> Result<()> {
     let t = Instant::now();
-    let mut ocr = Ocr::new(threads)?;
+    let mut ocr = Ocr::new(threads, scripts)?;
     let load = t.elapsed();
 
     let t = Instant::now();

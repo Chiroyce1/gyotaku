@@ -629,6 +629,47 @@ mod tests {
         hits.iter().map(|h| h.path.to_str().unwrap()).collect()
     }
 
+    // Lines as the Devanagari reader gave them back from test screenshots.
+    // Vowel signs and the virama are their own code points, which the trigram
+    // index takes like any other character, and no case folding touches them.
+    #[test]
+    fn finds_devanagari() {
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.insert(
+            &shot("/shots/chat.png", 100),
+            &[
+                line("नमस्ते, आप कैसे हैं?", 0.1),
+                line("कल मिलते हैं, शाम 6 बजे", 0.2),
+            ],
+        )
+        .unwrap();
+        idx.insert(
+            &shot("/shots/order.png", 200),
+            &[
+                line("Order #4021 का स्टेटस", 0.1),
+                line("भाषा: हिन्दी", 0.3),
+                line("सूचना: उदा पाणीपुरवठा बंद राहील", 0.5),
+            ],
+        )
+        .unwrap();
+
+        let found = |q: &str| paths(&idx.search(q, 10).unwrap()).join(" ");
+        assert_eq!(found("मिलते"), "/shots/chat.png");
+        assert_eq!(found("हिन्दी"), "/shots/order.png");
+        // The middle of a word, through a conjunct.
+        assert_eq!(found("न्द"), "/shots/order.png");
+        assert_eq!(found("पुरवठा"), "/shots/order.png");
+        // Two characters is under the trigram index, so LIKE.
+        assert_eq!(found("कल"), "/shots/chat.png");
+        // Mixed with English, terms on different lines.
+        assert_eq!(found("order हिन्दी"), "/shots/order.png");
+        assert_eq!(found("स्टेटस"), "/shots/order.png");
+        assert_eq!(found("नमस्कार"), "");
+
+        let hits = idx.search("शाम", 10).unwrap();
+        assert_eq!(hits[0].lines, [line("कल मिलते हैं, शाम 6 बजे", 0.2)]);
+    }
+
     #[test]
     fn finds_the_middle_of_a_word() {
         let hits = sample().search("nutsmp", 10).unwrap();

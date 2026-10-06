@@ -31,6 +31,12 @@ pub struct Config {
     /// Where those go, when not the default folder in Pictures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clipboard_folder: Option<PathBuf>,
+    /// Writing systems read on top of the default ones (Latin, Chinese and
+    /// Japanese), by name, like `scripts = ["devanagari"]`. Names, not an
+    /// enum, so a config from a newer version with a script this one doesn't
+    /// know still loads; see `Config::scripts`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scripts: Vec<String>,
     /// Shortcuts changed from their defaults, by name, like
     /// `trash = "ctrl-backspace"`. Only the changed ones are written. Last,
     /// since a table has to come after the plain values.
@@ -46,8 +52,34 @@ impl Default for Config {
             threads: default_threads(),
             clipboard: false,
             clipboard_folder: None,
+            scripts: Vec::new(),
             keys: BTreeMap::new(),
         }
+    }
+}
+
+/// A writing system the default recognizer can't read, with a model of its
+/// own that's downloaded the first time it's turned on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Script {
+    /// Hindi, Marathi, Nepali, Sanskrit and the rest written in it.
+    Devanagari,
+}
+
+impl Script {
+    pub const ALL: [Script; 1] = [Script::Devanagari];
+
+    /// The name used in the config.
+    pub fn name(self) -> &'static str {
+        match self {
+            Script::Devanagari => "devanagari",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|s| s.name().eq_ignore_ascii_case(name.trim()))
     }
 }
 
@@ -66,6 +98,27 @@ pub fn too_broad(folder: &Path) -> bool {
 }
 
 impl Config {
+    /// The extra scripts to read, skipping names this version doesn't know.
+    pub fn scripts(&self) -> Vec<Script> {
+        let mut out: Vec<Script> = self
+            .scripts
+            .iter()
+            .filter_map(|n| Script::from_name(n))
+            .collect();
+        out.dedup();
+        out
+    }
+
+    /// Turns one script on or off, keeping any names this version doesn't
+    /// know as they were.
+    pub fn set_script(&mut self, script: Script, on: bool) {
+        self.scripts
+            .retain(|n| Script::from_name(n) != Some(script));
+        if on {
+            self.scripts.push(script.name().to_owned());
+        }
+    }
+
     /// Where copied images are saved, while saving them is on.
     pub fn clipboard_folder(&self) -> Option<PathBuf> {
         if !self.clipboard {
@@ -180,6 +233,7 @@ mod tests {
             threads: 2,
             clipboard: true,
             clipboard_folder: Some("/c/copied".into()),
+            scripts: vec!["devanagari".into()],
             keys: BTreeMap::from([("trash".into(), "ctrl-backspace".into())]),
         };
         config.save_to(&path).unwrap();
@@ -242,6 +296,34 @@ mod tests {
             vec!["/p/shots".into(), clips.clone()]
         );
         std::fs::remove_dir_all(clips).unwrap();
+    }
+
+    #[test]
+    fn unknown_scripts_are_skipped_but_kept() {
+        let path = scratch("scripts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "scripts = [\"Devanagari\", \"klingon\"]\n").unwrap();
+        let mut config = Config::load_from(&path).unwrap().unwrap();
+        assert_eq!(config.scripts(), vec![Script::Devanagari]);
+
+        config.set_script(Script::Devanagari, false);
+        assert!(config.scripts().is_empty());
+        assert_eq!(
+            config.scripts,
+            vec!["klingon".to_string()],
+            "left for a newer version"
+        );
+
+        config.set_script(Script::Devanagari, true);
+        config.set_script(Script::Devanagari, true);
+        assert_eq!(config.scripts(), vec![Script::Devanagari], "never twice");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn no_scripts_leave_no_trace() {
+        let text = toml::to_string_pretty(&Config::default()).unwrap();
+        assert!(!text.contains("scripts"), "{text}");
     }
 
     #[test]

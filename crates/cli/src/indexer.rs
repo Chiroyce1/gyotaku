@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
-use gyotaku_core::{Index, Shot};
+use gyotaku_core::{Index, Script, Shot};
 
 use crate::platform;
 use gyotaku_ocr::Ocr;
@@ -48,15 +48,17 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub fn new(threads: usize) -> Result<Self> {
+    pub fn new(threads: usize, scripts: &[Script]) -> Result<Self> {
         Ok(Self {
             index: Index::open_default()?,
-            ocr: Ocr::new(threads)?,
+            ocr: Ocr::new(threads, scripts)?,
         })
     }
 
-    pub fn set_threads(&mut self, threads: usize) -> Result<()> {
-        self.ocr = Ocr::new(threads)?;
+    /// A new reader for changed settings. On an error (a script's model that
+    /// can't be downloaded right now) the old one stays.
+    pub fn set_reader(&mut self, threads: usize, scripts: &[Script]) -> Result<()> {
+        self.ocr = Ocr::new(threads, scripts)?;
         Ok(())
     }
 

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
-pub use config::{Config, ThemeChoice, default_threads, pictures_dir, tidy, too_broad};
+pub use config::{Config, Script, ThemeChoice, default_threads, pictures_dir, tidy, too_broad};
 pub use index::{Hit, Index};
 pub use query::{Filter, Query};
 

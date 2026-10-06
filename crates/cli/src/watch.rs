@@ -51,10 +51,11 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
     let config_path = Config::path()?;
     let config = Config::load_or_default();
     let mut threads_now = threads.unwrap_or(config.threads);
+    let mut scripts_now = config.scripts();
     let follow_config = fixed.is_none();
 
     status::set("getting the text reader ready, the first time this downloads 22 MB");
-    let indexer = match Indexer::new(threads_now) {
+    let indexer = match Indexer::new(threads_now, &scripts_now) {
         Ok(indexer) => indexer,
         Err(e) => {
             status::set(&format!("couldn't get the text reader ready: {e:#}"));
@@ -192,10 +193,31 @@ pub fn run(fixed: Option<Vec<PathBuf>>, threads: Option<usize>) -> Result<()> {
                 }
                 caught_up = false;
             }
-            if threads.is_none() && config.threads != threads_now {
-                threads_now = config.threads;
-                w.indexer.set_threads(threads_now)?;
-                eprintln!("reading with {threads_now} threads now");
+            let threads_wanted = threads.unwrap_or(config.threads);
+            let scripts_wanted = config.scripts();
+            if threads_wanted != threads_now || scripts_wanted != scripts_now {
+                // A new script's model downloads here. Offline, reading goes
+                // on as before, and the next config change tries again.
+                if scripts_wanted != scripts_now {
+                    status::set("getting the reader for another script ready");
+                }
+                match w.indexer.set_reader(threads_wanted, &scripts_wanted) {
+                    Ok(()) => {
+                        threads_now = threads_wanted;
+                        scripts_now = scripts_wanted;
+                        eprintln!(
+                            "reading with {threads_now} threads and {} extra scripts now",
+                            scripts_now.len()
+                        );
+                        if caught_up {
+                            status::set("up to date");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("couldn't change the reader: {e:#}");
+                        status::set(&format!("couldn't get that script's reader: {e:#}"));
+                    }
+                }
             }
             w.folders = folders;
         }

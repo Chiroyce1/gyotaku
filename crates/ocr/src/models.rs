@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub struct Model {
     pub file: &'static str,
     /// Tried in order until one gives the file with the right hash.
-    urls: [&'static str; 2],
+    urls: &'static [&'static str],
     sha256: &'static str,
 }
 
@@ -20,7 +20,7 @@ pub struct Model {
 // same files their python package downloads).
 macro_rules! urls {
     ($dir:literal, $file:literal) => {
-        [
+        &[
             concat!(
                 "https://github.com/xevrion/gyotaku/releases/download/models-v1/",
                 $file
@@ -50,6 +50,19 @@ pub const REC: Model = Model {
     file: "PP-OCRv6_rec_small.onnx",
     urls: urls!("rec", "PP-OCRv6_rec_small.onnx"),
     sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+};
+
+// PP-OCRv6 has no Devanagari recognizer yet, so this is PP-OCRv5's, the
+// newest there is. Its alphabet is the Devanagari block plus digits, Latin
+// letters and punctuation, so mixed Hindi and English lines read whole.
+// Downloaded only once the script is turned on, from ModelScope alone until
+// it's mirrored in this project's models release.
+pub const DEVANAGARI: Model = Model {
+    file: "devanagari_PP-OCRv5_rec_mobile.onnx",
+    urls: &[
+        "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile.onnx",
+    ],
+    sha256: "d6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e",
 };
 
 /// ONNX Runtime itself: Microsoft's official build, fetched on first use like

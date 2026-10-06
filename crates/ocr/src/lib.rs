@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
-use gyotaku_core::{Line, Rect};
+use gyotaku_core::{Line, Rect, Script};
 use image::RgbImage;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 
@@ -23,17 +23,44 @@ pub struct Ocr {
     det: Session,
     rec: Session,
     alphabet: Vec<String>,
+    /// Recognizers for the scripts turned on in settings, on top of the
+    /// default one.
+    extra: Vec<Recognizer>,
+}
+
+struct Recognizer {
+    script: Script,
+    session: Session,
+    alphabet: Vec<String>,
 }
 
 impl Ocr {
-    /// Loads both models, downloading them on first use. `threads` is how many
-    /// cores one screenshot may use.
-    pub fn new(threads: usize) -> Result<Self> {
+    /// Loads the models, downloading them on first use. `threads` is how many
+    /// cores one screenshot may use, `scripts` the extra writing systems to
+    /// read.
+    pub fn new(threads: usize, scripts: &[Script]) -> Result<Self> {
         load_runtime()?;
         let det = load(&models::DET, threads)?;
         let rec = load(&models::REC, threads)?;
         let alphabet = rec::alphabet(&rec)?;
-        Ok(Self { det, rec, alphabet })
+        let extra = scripts
+            .iter()
+            .map(|&script| {
+                let session = load(model_for(script), threads)?;
+                let alphabet = rec::alphabet(&session)?;
+                Ok(Recognizer {
+                    script,
+                    session,
+                    alphabet,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self {
+            det,
+            rec,
+            alphabet,
+            extra,
+        })
     }
 
     pub fn read(&mut self, img: &RgbImage) -> Result<Vec<Line>> {
@@ -42,25 +69,86 @@ impl Ocr {
             return Ok(Vec::new());
         }
         let regions = det::detect(&mut self.det, img)?;
-        let texts = rec::recognize(&mut self.rec, &self.alphabet, img, &regions)?;
+        let mut texts = rec::recognize(&mut self.rec, &self.alphabet, img, &regions)?;
+
+        // Only the lines the default reader stumbled on get a second read,
+        // which keeps it to about a fifth more time on a typical screenshot
+        // instead of nearly double.
+        for extra in &mut self.extra {
+            let unsure: Vec<usize> = (0..regions.len())
+                .filter(|&i| second_read(extra.script, &texts[i]))
+                .collect();
+            if unsure.is_empty() {
+                continue;
+            }
+            let picked: Vec<det::Region> = unsure.iter().map(|&i| regions[i]).collect();
+            let again = rec::recognize(&mut extra.session, &extra.alphabet, img, &picked)?;
+            for (&i, read) in unsure.iter().zip(again) {
+                if better(extra.script, &read, &texts[i]) {
+                    texts[i] = read;
+                }
+            }
+        }
 
         let (w, h) = (img.width() as f32, img.height() as f32);
         Ok(regions
             .iter()
             .zip(texts)
-            .filter(|(_, (text, score))| *score >= MIN_SCORE && worth_keeping(text))
-            .map(|(r, (text, score))| Line {
-                text: text.trim().to_owned(),
+            .filter(|(_, read)| read.score >= MIN_SCORE && worth_keeping(&read.text))
+            .map(|(r, read)| Line {
+                text: read.text.trim().to_owned(),
                 rect: Rect {
                     x: r.x0 as f32 / w,
                     y: r.y0 as f32 / h,
                     w: r.width() as f32 / w,
                     h: r.height() as f32 / h,
                 },
-                score,
+                score: read.score,
             })
             .collect())
     }
+}
+
+fn model_for(script: Script) -> &'static models::Model {
+    match script {
+        Script::Devanagari => &models::DEVANAGARI,
+    }
+}
+
+fn in_script(script: Script, c: char) -> bool {
+    match script {
+        Script::Devanagari => ('\u{0900}'..='\u{097F}').contains(&c),
+    }
+}
+
+// Hindi read by the default reader comes back as a few confident-looking Latin
+// letters (पुणे महानगरपालिका as "yut HETATRUTOT", 0.66) or as nothing. On
+// screenshots with no Hindi at all, about a fifth of lines fall under this,
+// mostly icons.
+const RECHECK_BELOW: f32 = 0.9;
+
+// A line that's half English and half Hindi reads the English confidently and
+// leaves the Hindi out, "Order #4021 का स्टेटस" as "Order #4021" at 0.95. What
+// gives it away is the gap: 24 steps of nothing where the Hindi was. Lines
+// that read in full have gaps of 2 to 5, and on 441 confident lines from real
+// screenshots only 25 had one of 8 or more.
+const GAP_STEPS: usize = 8;
+
+/// Whether a line read by the default reader is worth reading again as
+/// `script`.
+fn second_read(script: Script, read: &rec::Read) -> bool {
+    read.score < RECHECK_BELOW
+        || read.gap >= GAP_STEPS
+        || read.text.chars().any(|c| in_script(script, c))
+}
+
+/// Whether the second read should replace the first: only when it's surer
+/// and found the script it's for. Its alphabet has Latin letters too, but the
+/// default reader stays in charge of everything else, so turning a script on
+/// never changes how an English or Chinese line reads. Without this, a price
+/// "₹1,250.00" came back as "ऱ 1,250.00", and Chinese as stray letters.
+fn better(script: Script, new: &rec::Read, old: &rec::Read) -> bool {
+    new.score > old.score && new.text.chars().any(|c| in_script(script, c))
 }
 
 /// UI icons get detected as text and come back as one confident character: a
@@ -130,4 +218,58 @@ pub fn open_image(path: &Path) -> Result<image::DynamicImage> {
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     reader.limits(limits);
     Ok(reader.decode()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rec::Read;
+
+    fn read(text: &str, score: f32, gap: usize) -> Read {
+        Read {
+            text: text.into(),
+            score,
+            gap,
+        }
+    }
+
+    const HINDI: Script = Script::Devanagari;
+
+    // The readings below are what the two models gave on real test images.
+    #[test]
+    fn confident_whole_lines_are_left_alone() {
+        assert!(!second_read(
+            HINDI,
+            &read("Your invoice from Fern & Co", 0.981, 2)
+        ));
+        assert!(!second_read(HINDI, &read("请输入验证码 482913", 0.99, 4)));
+    }
+
+    #[test]
+    fn unsure_lines_and_lines_with_holes_get_a_second_read() {
+        assert!(second_read(HINDI, &read("yut HETATRUTOT", 0.655, 4)));
+        assert!(second_read(HINDI, &read("Order #4021 ", 0.945, 24)));
+        assert!(second_read(HINDI, &read("", 0.0, 48)));
+    }
+
+    #[test]
+    fn hindi_replaces_what_the_default_reader_made_of_it() {
+        let old = read("Order #4021 ", 0.945, 24);
+        let new = read("Order #4021 का स्टेटस", 0.975, 2);
+        assert!(better(HINDI, &new, &old));
+    }
+
+    #[test]
+    fn the_default_reader_keeps_everything_else() {
+        // Surer, but no Devanagari in it: an English line stays as read.
+        let old = read("Gate 14· Seat 22A·PNR K7Q2ZD", 0.960, 3);
+        assert!(!better(
+            HINDI,
+            &read("Gate 14 · Seat 22A · PNR K7Q2ZD", 0.983, 3),
+            &old
+        ));
+        // A stray Devanagari letter, but less sure: the rupee sign stays.
+        let old = read("₹1,250.00", 0.943, 5);
+        assert!(!better(HINDI, &read("ऱ 1,250.00", 0.888, 5), &old));
+    }
 }
