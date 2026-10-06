@@ -66,7 +66,9 @@ jobs:
       # with screencapture. The folders cover the ways a configured path can
       # differ from the real one FSEvents reports: under /var (really
       # /private/var), through a symlink, and a plain one under the home
-      # folder. Each file must be in the index within 15 seconds.
+      # folder. All of them must be in the index within two minutes (reading
+      # one takes from one to thirty seconds on a busy runner; a file whose
+      # event was dropped never arrives at all).
       - name: reader follows new files
         run: |
           bin="$PWD/target/release/gyotaku"
@@ -102,17 +104,22 @@ jobs:
           done
           screencapture -x "$plain_dir/shot-plain.png" || echo "screencapture failed"
 
-          failed=0
-          for name in cp-var cp-link cp-plain mv-plain mv-var slow-plain shot-plain; do
-            found=no
-            for _ in $(seq 1 15); do
-              if sqlite3 "$data/index.db" "select path from shots" | grep -q "/$name.png$"; then
-                found=yes; break
-              fi
-              sleep 1
+          names="cp-var cp-link cp-plain mv-plain mv-var slow-plain shot-plain"
+          for _ in $(seq 1 120); do
+            missing=0
+            for name in $names; do
+              sqlite3 "$data/index.db" "select path from shots" | grep -q "/$name.png$" || missing=1
             done
-            echo "$name: $found"
-            [ "$found" = yes ] || failed=1
+            [ "$missing" = 0 ] && break
+            sleep 1
+          done
+          failed=0
+          for name in $names; do
+            if sqlite3 "$data/index.db" "select path from shots" | grep -q "/$name.png$"; then
+              echo "$name: yes"
+            else
+              echo "$name: no"; failed=1
+            fi
           done
 
           kill "$watch_pid" || true
