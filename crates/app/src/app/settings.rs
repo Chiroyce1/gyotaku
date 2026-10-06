@@ -786,12 +786,11 @@ impl Gyotaku {
                                 .text_ellipsis()
                                 .child(tidy(&config.folders[i])),
                         )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(theme.muted)
-                                .child(format!("{} shots", thousands(n))),
-                        )
+                        .child(div().text_sm().text_color(theme.muted).child(if n == 1 {
+                            "1 shot".to_string()
+                        } else {
+                            format!("{} shots", thousands(n))
+                        }))
                         .child(
                             div()
                                 .id(("remove", i))

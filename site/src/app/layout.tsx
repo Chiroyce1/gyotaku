@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
 import { JsonLd } from "@/components/JsonLd";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import { themeScript } from "@/components/ThemeToggle";
@@ -92,6 +93,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <JsonLd />
         <SmoothScroll />
         {children}
+        <Analytics />
       </body>
     </html>
   );
