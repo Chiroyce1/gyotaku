@@ -51,6 +51,13 @@ pub use imp::{listen, resident_address, wake};
 // The window, and the key that brings it up.
 pub use imp::{hides_when_inactive, open_launcher, register_summon, take_focus};
 
+// Who draws the window's corners. macOS and Windows give the popup a frame of
+// their own (rounded where the system rounds, with its rim and shadow along
+// that shape), so the panel fills it edge to edge; drawing our own corner
+// inside theirs left a sliver between the two curves. On Linux nothing frames
+// the overlay, so the panel rounds and outlines itself.
+pub use imp::SYSTEM_FRAMES_WINDOW;
+
 // Living in the background like a launcher, the way Raycast does on macOS
 // and Windows: no Dock or taskbar button to quit by accident, an icon in the
 // menu bar or notification area with the way back in and the way out, and

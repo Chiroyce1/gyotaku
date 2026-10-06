@@ -109,19 +109,57 @@ pub fn open_launcher(
     cx: &mut App,
     build: impl FnOnce(&mut Window, &mut App) -> Entity<Gyotaku> + 'static,
 ) -> Option<WindowHandle<Gyotaku>> {
-    cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size, cx))),
-            app_id: Some("gyotaku".into()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::PopUp,
-            ..Default::default()
-        },
-        build,
-    )
-    .ok()
+    let window = cx
+        .open_window(
+            WindowOptions {
+                titlebar: None,
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size, cx))),
+                app_id: Some("gyotaku".into()),
+                window_background: WindowBackgroundAppearance::Transparent,
+                kind: WindowKind::PopUp,
+                ..Default::default()
+            },
+            build,
+        )
+        .ok()?;
+    let _ = window.update(cx, |_, window, _| round_corners(window));
+    Some(window)
 }
+
+/// Asks DWM for Windows 11's rounded window corners. A tool-window popup
+/// isn't always given them by default, and then its border and shadow come
+/// out square. Windows 10 doesn't know the attribute and keeps the square
+/// frame, which the square panel matches too.
+fn round_corners(window: &Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+    };
+    // Spelled out: gpui's Window has an inherent `window_handle` of its own.
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let preference = DWMWCP_ROUND;
+    // SAFETY: the handle is this live window's, and the attribute's value is
+    // a DWM_WINDOW_CORNER_PREFERENCE read from the pointer for its size.
+    unsafe {
+        DwmSetWindowAttribute(
+            handle.hwnd.get() as _,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            (&raw const preference).cast(),
+            size_of_val(&preference) as u32,
+        );
+    }
+}
+
+/// DWM frames the popup: on Windows 11 it rounds the window (asked for in
+/// `round_corners`), clips it, and draws its border and shadow along that
+/// shape; on Windows 10 the same frame is square. The panel fills the window
+/// square either way, so the frame and the panel always agree.
+pub const SYSTEM_FRAMES_WINDOW: bool = true;
 
 /// A popup that stays on top of everything has to be put away when you
 /// click elsewhere, like the Start menu.

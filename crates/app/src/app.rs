@@ -681,8 +681,15 @@ impl Gyotaku {
             .clone()
     }
 
+    /// Whether the panel rounds and outlines itself: only a floating panel
+    /// nothing else frames. Where the system frames the window, a corner of
+    /// our own would sit inside its curve and leave a sliver between them.
+    fn own_frame(&self) -> bool {
+        self.floating && !platform::SYSTEM_FRAMES_WINDOW
+    }
+
     fn corner(&self) -> Pixels {
-        if self.floating {
+        if self.own_frame() {
             px(PANEL_RADIUS)
         } else {
             px(0.)
@@ -2618,7 +2625,7 @@ impl Render for Gyotaku {
             .overflow_hidden()
             .bg(theme.panel)
             .rounded(self.corner())
-            .when(self.floating, |panel| {
+            .when(self.own_frame(), |panel| {
                 panel.border_1().border_color(theme.hairline)
             })
             .text_color(theme.text)

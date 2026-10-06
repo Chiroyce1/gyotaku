@@ -94,6 +94,12 @@ pub fn open_launcher(
     .ok()
 }
 
+/// gpui makes the popup a titled NSPanel with a full-size content view, so
+/// AppKit rounds it at the system's own radius (which varies by macOS
+/// version) and draws the rim and shadow along that curve. The panel fills
+/// the window square and lets AppKit cut the corners.
+pub const SYSTEM_FRAMES_WINDOW: bool = true;
+
 /// A panel that floats above everything has to be put away when you click
 /// elsewhere, like Spotlight.
 pub fn hides_when_inactive() -> bool {

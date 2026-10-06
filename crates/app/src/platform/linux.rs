@@ -97,6 +97,10 @@ pub fn open_launcher(
     .ok()
 }
 
+/// A layer-shell overlay has no frame, so the panel draws its own rounded
+/// corners and outline.
+pub const SYSTEM_FRAMES_WINDOW: bool = false;
+
 /// The compositor puts an overlay away by itself when focus moves on.
 pub fn hides_when_inactive() -> bool {
     false
