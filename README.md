@@ -34,7 +34,7 @@ All processing happens locally. gyotaku does not take screenshots itself; it ind
 | Window summon time | ~120 ms |
 | Frame rate with a GPU | 144 fps (display refresh rate) |
 | Memory while idle in the background | 37 MB |
-| Disk usage | ~28 MB per 1,000 screenshots |
+| Disk usage | ~30 MB per 1,000 screenshots |
 
 It also runs without a GPU, using software rendering. All figures were measured on real hardware; see [Performance](docs/performance.md) for the full results and methodology.
 

@@ -17,6 +17,7 @@ Open the search window with your shortcut and start typing. Results update on ev
 | Behavior | Detail |
 |---|---|
 | Partial matching | Any substring matches. `nutsmp` finds `donutsmp.net`, and `invoi` finds `invoice`. Words the OCR misread slightly remain findable from their correct parts. |
+| Misread words | After the exact matches come near matches, screenshots where a word was read with one look-alike character in place of another: `0RDER` for `order`, `rnodern` for `modern`, `E0425` for `EO425`. They are labelled `near match`, and the text is shown exactly as it was read. Words under four characters only match exactly. |
 | Multiple words | All words must appear in the screenshot, in any order and on any line. `invoice march` matches a screenshot containing both. |
 | Case | Matching is case-insensitive. |
 | Special characters | Input is always treated as literal text. `c++`, `NOT` and unbalanced quotes are valid queries. |

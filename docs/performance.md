@@ -66,7 +66,7 @@ Recall is measured on 25 randomly selected screenshots against the larger detect
 
 | Item | Size |
 |---|---|
-| Text index | ~4.6 MB per 1,000 screenshots |
+| Text index | ~6.8 MB per 1,000 screenshots (measured on 6,887) |
 | Thumbnails | ~23 MB per 1,000 screenshots (24 KB each; regenerated on demand) |
 | OCR models | 22 MB, downloaded once |
 | ONNX Runtime | 24 MB, downloaded once |

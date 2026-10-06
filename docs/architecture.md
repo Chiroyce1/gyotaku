@@ -51,6 +51,7 @@ The index is a single SQLite database using FTS5 with the trigram tokenizer. Tri
 - **One full-text row per screenshot.** Multi-word queries match across lines. Per-line text and bounding boxes are stored in a separate table.
 - **Query escaping.** Every term is quoted before it reaches `MATCH`, so operators and punctuation in user input are treated as literal text.
 - **Short terms.** Terms under three characters cannot use the trigram index and fall back to `LIKE`, applied to rows already narrowed by the other terms.
+- **Near matches.** A second trigram index holds each screenshot's text with OCR look-alikes folded together (`0` and `o`; `1`, `l`, `i` and `|`; `5`, `s` and `$`; `8` and `b`; `m` and `rn`; `w` and `vv`; `d` and `cl`). It is only searched when the exact matches don't fill the result limit, and each candidate is then checked against the text as it was read: one misread letter is allowed in a word of four to seven letters, two from eight letters up, none under four. Without that check, folding finds ordinary words in other words, such as `email` in `internally`. Spaces are not folded, since on a real index that mostly matched words that were apart all along (`in voice` for `invoice`). Near matches always follow every exact match and are labelled in the window.
 - **Lazy highlighting.** Matched lines are fetched only for thumbnails currently on screen. A two-letter query can match 2,000 screenshots; loading lines for all of them took 60 to 90 ms, compared with 1 to 10 ms for the ~30 visible thumbnails.
 
 ## Search window
