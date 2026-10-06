@@ -817,14 +817,19 @@ impl Gyotaku {
                         .child(
                             div()
                                 .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(tidy(&config.folders[i])),
+                                .child(short_path(&tidy(&config.folders[i]))),
                         )
-                        .child(div().text_sm().text_color(theme.muted).child(if n == 1 {
-                            "1 shot".to_string()
-                        } else {
-                            format!("{} shots", thousands(n))
-                        }))
+                        .child(div().flex_none().text_sm().text_color(theme.muted).child(
+                            if n == 1 {
+                                "1 shot".to_string()
+                            } else {
+                                format!("{} shots", thousands(n))
+                            },
+                        ))
                         .child(on_row_hover(
                             ix,
                             selected,
@@ -1197,12 +1202,25 @@ impl Gyotaku {
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w_0()
                                     .flex()
                                     .flex_col()
-                                    .child(tidy(&path))
+                                    .child(
+                                        div()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(short_path(&tidy(&path))),
+                                    )
                                     .child(div().text_xs().text_color(theme.muted).child(why)),
                             )
-                            .child(div().text_sm().text_color(theme.muted).child(count))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_sm()
+                                    .text_color(theme.muted)
+                                    .child(count),
+                            )
                             .into_any_element()
                     })
                     .collect();
@@ -1422,6 +1440,40 @@ fn mb(bytes: u64) -> String {
     format!("{} MB", (bytes as f64 / 1_048_576.0).round() as u64)
 }
 
+/// Longer paths lose folders from the middle, never the start (where it
+/// lives) or the end (which folder it is): `~/Downloads/College/…/Pictures`.
+/// The row still ellipsizes as a last resort in a very narrow window.
+const PATH_CHARS: usize = 44;
+
+fn short_path(path: &str) -> String {
+    if path.chars().count() <= PATH_CHARS {
+        return path.to_string();
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    let width = |head: usize, tail: usize| {
+        parts[..head].join("/").chars().count()
+            + parts[parts.len() - tail..].join("/").chars().count()
+            + 3
+    };
+    // As many leading folders as fit, keeping at least the first one and the
+    // last one, then as many trailing ones as still fit.
+    let (mut head, mut tail) = (1, 1);
+    while head + tail < parts.len() - 1 && width(head + 1, tail) <= PATH_CHARS {
+        head += 1;
+    }
+    while head + tail < parts.len() - 1 && width(head, tail + 1) <= PATH_CHARS {
+        tail += 1;
+    }
+    if head + tail >= parts.len() {
+        return path.to_string();
+    }
+    format!(
+        "{}/\u{2026}/{}",
+        parts[..head].join("/"),
+        parts[parts.len() - tail..].join("/")
+    )
+}
+
 /// On is ink, off is a grey groove, and the knob slides between the two.
 fn switch(id: impl Into<ElementId>, on: bool, theme: Theme) -> impl IntoElement {
     let (from, to) = if on { (2.0, 14.0) } else { (14.0, 2.0) };
@@ -1591,4 +1643,33 @@ fn stepper(value: usize, theme: Theme, cx: &mut Context<Gyotaku>) -> impl IntoEl
                 .child(value.to_string()),
         )
         .child(step("threads-more", "\u{2192}", 1, theme, cx))
+}
+
+#[cfg(test)]
+mod short_path_tests {
+    use super::short_path;
+
+    #[test]
+    fn short_paths_stay_whole() {
+        assert_eq!(
+            short_path("~/Pictures/Screenshots"),
+            "~/Pictures/Screenshots"
+        );
+    }
+
+    #[test]
+    fn long_paths_lose_the_middle() {
+        let s = short_path("~/Downloads/College/Cybersecurity/HTB/Linux/Paperwork/Pictures");
+        assert!(s.starts_with("~/Downloads"), "{s}");
+        assert!(s.ends_with("/Pictures"), "{s}");
+        assert!(s.contains('\u{2026}'), "{s}");
+        assert!(s.chars().count() <= super::PATH_CHARS, "{s}");
+    }
+
+    #[test]
+    fn one_long_folder_name_is_left_for_the_ellipsis() {
+        let name = "a".repeat(60);
+        let s = short_path(&format!("~/{name}"));
+        assert_eq!(s, format!("~/{name}"));
+    }
 }
