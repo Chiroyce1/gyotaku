@@ -218,14 +218,15 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [x] A Windows setup `.exe`: Start menu entry, uninstall from Apps and features
 - [ ] A macOS `.dmg` with a signed, notarized app
 - [ ] Linux packages for every family, each a separate piece of the release pipeline: Flatpak on Flathub, the AUR, a Fedora COPR, an apt repository for Debian and Ubuntu, and openSUSE's OBS
-- [ ] A landing page with a demo, the measured numbers and the install commands
+- [x] A landing page with a demo, the measured numbers and the install commands
 - [x] Windows support
 - [ ] macOS support
 - [ ] Optional classification of screenshots (one-time codes, receipts, chats) with Jev, to find and clear out the throwaway ones. Opt-in and off by default; only the recognized text is sent, never the image
-- [ ] Typo-tolerant search for OCR misreads: look-alike characters (`0` and `O`, `rn` and `m`, `l` and `1`) and words the OCR split apart (`ord er` for `order`). Exact matches always rank first, and near matches are labelled as such, with the text exactly as it was read, so an error code is never silently "corrected". Substring matching already works through the trigram index
+- [x] Typo-tolerant search for OCR misreads: look-alike characters (`0` and `O`, `rn` and `m`, `l` and `1`). Exact matches always rank first, and near matches are labelled as such, with the text exactly as it was read, so an error code is never silently "corrected"
+- [ ] Words the OCR split apart (`ord er` for `order`), without matching words that really are apart: joining them naively found "HOURS IN VOICE" for `invoice`
 - [ ] Search by what a screenshot shows, not only the text in it ("the one with a cat"), using a small local image embedding model such as CLIP. Optional, offline, and fast enough without a GPU
 - [x] A keyboard shortcuts page in settings that lists every shortcut and lets each one be rebound by pressing the new keys
-- [ ] Screenshots that only ever go to the clipboard: an opt-in setting that saves images copied to the clipboard into a folder of their own, so they become searchable like any other screenshot
+- [ ] Screenshots that only ever go to the clipboard: an opt-in setting that saves images copied to the clipboard into a folder of their own, so they become searchable like any other screenshot. Works on Linux (Wayland and X11); the Windows side is written but not yet tried on a real machine
 - [x] Group bursts of near-identical screenshots into one tile, with the rest a key away
 - [x] Search filters for the folder (`in:discord`) and the date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
 - [ ] An `app:` filter, which first needs a way to know which app a screenshot was taken in: the file itself doesn't say
