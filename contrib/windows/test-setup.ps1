@@ -15,8 +15,12 @@ $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\gyota
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $quiet = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
 
+# Waits for the process itself. Start-Process -Wait would also wait for what
+# it started, and an update starts gyotaku again, which stays running.
 function Run($file, $arguments) {
-    $p = Start-Process -FilePath $file -ArgumentList $arguments -Wait -PassThru
+    $p = Start-Process -FilePath $file -ArgumentList $arguments -PassThru
+    $null = $p.Handle # keeps the exit code readable after it exits
+    if (-not $p.WaitForExit(300000)) { throw "$file is still running after 5 minutes" }
     if ($p.ExitCode) { throw "$file exited with $($p.ExitCode)" }
 }
 
