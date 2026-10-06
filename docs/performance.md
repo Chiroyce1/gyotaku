@@ -81,6 +81,8 @@ Vertical text costs nothing extra unless a screenshot has some: only boxes at le
 
 1 to 10 ms per keystroke across more than 5,000 screenshots, including fetching the matched lines for the visible results.
 
+Stacking [similar screenshots](usage.md#similar-screenshots) into one tile adds 0.02 ms per keystroke (median; 0.3 ms at most), and 0.7 ms when browsing all 6,863 screenshots of the test library. Grouping a library indexed before groups existed is a one-time background job of about 2.4 ms per screenshot, 17 s for that library, at idle priority.
+
 ## Disk usage
 
 | Item | Size |

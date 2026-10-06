@@ -193,6 +193,7 @@ If anything does not work as described, see [Troubleshooting](docs/troubleshooti
 | Ctrl+C | Copy the screenshot's text, or the selected lines |
 | Ctrl+Shift+C | Copy the image |
 | Ctrl+, | Open settings |
+| Ctrl+E | Show the similar screenshots folded behind the selected one |
 | Ctrl+Shift+A, Ctrl+Delete | Mark every result, then move them to the trash. Ctrl+Z puts them back. |
 | Escape | Clear the search, then close |
 
@@ -225,7 +226,7 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [ ] Search by what a screenshot shows, not only the text in it ("the one with a cat"), using a small local image embedding model such as CLIP. Optional, offline, and fast enough without a GPU
 - [x] A keyboard shortcuts page in settings that lists every shortcut and lets each one be rebound by pressing the new keys
 - [ ] Screenshots that only ever go to the clipboard: an opt-in setting that saves images copied to the clipboard into a folder of their own, so they become searchable like any other screenshot
-- [ ] Group bursts of near-identical screenshots
+- [x] Group bursts of near-identical screenshots into one tile, with the rest a key away
 - [x] Search filters for the folder (`in:discord`) and the date (`date:yesterday`, `before:aug`, `after:2026-08-01`)
 - [ ] An `app:` filter, which first needs a way to know which app a screenshot was taken in: the file itself doesn't say
 - [x] Devanagari (Hindi, Marathi, Nepali), opt-in in settings, and vertical text

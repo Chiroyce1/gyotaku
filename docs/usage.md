@@ -54,6 +54,19 @@ Words with a colon that aren't one of these keys, like `https://`, `12:30` or `e
 
 There is no `app:` filter: a screenshot file records nothing about the app it was taken in, and the names screenshot tools give their files don't either.
 
+### Similar screenshots
+
+Screenshots of the same thing taken close together, like a chat captured a few times while scrolling or one page shot twice, show as a single tile marked `+N similar`. Press Ctrl+E, or click the label, to show the rest right after it; again (or `hide N`) to fold them back.
+
+| Behavior | Detail |
+|---|---|
+| What counts as similar | Taken within 10 minutes of another screenshot in the group, and either with nearly all the same text, with most of the same text moved up or down (a scroll, same size, within 2 minutes), or, for screenshots with little or no text, a nearly identical picture. Different pages of one app share its sidebar and toolbar, but not the rest of the text, so they stay apart. |
+| Which one shows | The best match for the search, or the newest when browsing. |
+| Counts | The count in the header includes every screenshot found, folded ones too. |
+| Marking and the trash | A folded tile stands for its whole group: marking it, or moving it to the trash, includes the screenshots behind it, and the count says so. |
+| Existing screenshots | Grouped in the background after an update, at idle priority, which takes about 20 seconds for 7,000 screenshots. Until then they show one by one. |
+| Turning it off | Settings, "group similar screenshots". |
+
 ## Keyboard shortcuts
 
 | Key | Result grid | Open screenshot |
@@ -66,6 +79,7 @@ There is no `app:` filter: a screenshot file records nothing about the app it wa
 | Ctrl+O | Open the file in the default image viewer | Same |
 | Ctrl+Shift+O | Show the file in its folder | Same |
 | Ctrl+, | Open settings | |
+| Ctrl+E | Show or hide the [similar screenshots](#similar-screenshots) folded behind the selected one | |
 | Shift+Arrow keys | Mark a run of screenshots | |
 | Ctrl+Shift+A | Mark every result of the current search | |
 | Ctrl+Delete | Move the marked screenshots, or the selected one, to the trash | Move this screenshot to the trash |
@@ -91,6 +105,7 @@ Search for what you no longer need, mark the results, and move them to the trash
 
 - Click a thumbnail to open it.
 - Ctrl+click a thumbnail to mark or unmark it. Shift+click marks every thumbnail between the selection and the one clicked.
+- Click `+N similar` on a thumbnail to show the similar screenshots folded behind it, and `hide N` to fold them back.
 - The bar that appears while screenshots are marked can also be clicked.
 - On an open screenshot, hover to show the detected lines, click a line to copy it, or drag a rectangle to copy every line it intersects.
 
@@ -102,6 +117,7 @@ Open settings with Ctrl+,.
 |---|---|
 | Folders | Folders to index. The home directory and `/` are rejected; select the specific folders your screenshots are saved to. |
 | Theme | System, light or dark. |
+| Group similar screenshots | On by default. Shows near-identical screenshots taken close together as one tile. See [Similar screenshots](#similar-screenshots). |
 | Background indexing | Enables or disables the background indexer. See [Background indexing](#background-indexing). |
 | Save copied images | Off by default. Saves every image copied to the clipboard into its own folder, so images that were never saved anywhere become searchable. See [Copied images](#copied-images). |
 | Read Devanagari | Off by default. Also reads Hindi, Marathi, Nepali and other text in Devanagari. See [Other scripts](#other-scripts). |
