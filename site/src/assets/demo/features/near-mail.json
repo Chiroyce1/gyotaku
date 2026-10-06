@@ -1,0 +1,78 @@
+{
+  "id": "near-mail",
+  "name": "an invoice email",
+  "lines": [
+    {
+      "x": 0.179,
+      "y": 0.05,
+      "w": 0.193,
+      "h": 0.034,
+      "score": 0.99,
+      "text": "Fern & Co"
+    },
+    {
+      "x": 0.179,
+      "y": 0.09,
+      "w": 0.521,
+      "h": 0.035,
+      "score": 1,
+      "text": "billing@fernandco.example"
+    },
+    {
+      "x": 0.057,
+      "y": 0.174,
+      "w": 0.596,
+      "h": 0.057,
+      "score": 0.99,
+      "text": "Your invoice is ready"
+    },
+    {
+      "x": 0.058,
+      "y": 0.264,
+      "w": 0.314,
+      "h": 0.039,
+      "score": 0.97,
+      "text": "Invoice #4021"
+    },
+    {
+      "x": 0.059,
+      "y": 0.322,
+      "w": 0.481,
+      "h": 0.039,
+      "score": 1,
+      "text": "Amount due 2,340.00"
+    },
+    {
+      "x": 0.058,
+      "y": 0.377,
+      "w": 0.316,
+      "h": 0.041,
+      "score": 0.99,
+      "text": "Due by 12 Oct"
+    },
+    {
+      "x": 0.106,
+      "y": 0.49,
+      "w": 0.282,
+      "h": 0.043,
+      "score": 1,
+      "text": "View and pay"
+    },
+    {
+      "x": 0.056,
+      "y": 0.637,
+      "w": 0.594,
+      "h": 0.038,
+      "score": 0.98,
+      "text": "Fern & Co, 14 Lake Road, Jodhpur"
+    },
+    {
+      "x": 0.059,
+      "y": 0.684,
+      "w": 0.531,
+      "h": 0.033,
+      "score": 1,
+      "text": "Questions? Reply to this email."
+    }
+  ]
+}

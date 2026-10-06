@@ -1,0 +1,94 @@
+{
+  "id": "near-chat",
+  "name": "a chat with Mum",
+  "lines": [
+    {
+      "x": 0.17,
+      "y": 0.034,
+      "w": 0.137,
+      "h": 0.047,
+      "score": 1,
+      "text": "Mum"
+    },
+    {
+      "x": 0.172,
+      "y": 0.082,
+      "w": 0.125,
+      "h": 0.042,
+      "score": 1,
+      "text": "online"
+    },
+    {
+      "x": 0.435,
+      "y": 0.182,
+      "w": 0.128,
+      "h": 0.051,
+      "score": 1,
+      "text": "Today"
+    },
+    {
+      "x": 0.41,
+      "y": 0.266,
+      "w": 0.527,
+      "h": 0.053,
+      "score": 1,
+      "text": "landed! waiting for bags"
+    },
+    {
+      "x": 0.063,
+      "y": 0.364,
+      "w": 0.517,
+      "h": 0.046,
+      "score": 1,
+      "text": "call me when you're out"
+    },
+    {
+      "x": 0.66,
+      "y": 0.462,
+      "w": 0.28,
+      "h": 0.05,
+      "score": 0.99,
+      "text": "ok, at gate 4"
+    },
+    {
+      "x": 0.063,
+      "y": 0.562,
+      "w": 0.593,
+      "h": 0.046,
+      "score": 0.99,
+      "text": "did you eat anything on the"
+    },
+    {
+      "x": 0.057,
+      "y": 0.607,
+      "w": 0.138,
+      "h": 0.054,
+      "score": 1,
+      "text": "flight"
+    },
+    {
+      "x": 0.55,
+      "y": 0.704,
+      "w": 0.385,
+      "h": 0.053,
+      "score": 1,
+      "text": "just the sandwich"
+    },
+    {
+      "x": 0.06,
+      "y": 0.801,
+      "w": 0.603,
+      "h": 0.053,
+      "score": 1,
+      "text": "come home, dinner is ready"
+    },
+    {
+      "x": 0.665,
+      "y": 0.903,
+      "w": 0.275,
+      "h": 0.054,
+      "score": 1,
+      "text": "leaving now"
+    }
+  ]
+}

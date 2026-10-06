@@ -1,0 +1,102 @@
+{
+  "id": "burst-2",
+  "name": "a group chat, shot 2 of 4",
+  "lines": [
+    {
+      "x": 0.2,
+      "y": 0.037,
+      "w": 0.442,
+      "h": 0.056,
+      "score": 0.99,
+      "text": "Trip to Jaisalmer"
+    },
+    {
+      "x": 0.202,
+      "y": 0.094,
+      "w": 0.369,
+      "h": 0.044,
+      "score": 1,
+      "text": "Aarav, Meera, you"
+    },
+    {
+      "x": 0.067,
+      "y": 0.157,
+      "w": 0.169,
+      "h": 0.049,
+      "score": 0.75,
+      "text": "myn!"
+    },
+    {
+      "x": 0.26,
+      "y": 0.254,
+      "w": 0.59,
+      "h": 0.056,
+      "score": 1,
+      "text": "yes, train at 11:40 from"
+    },
+    {
+      "x": 0.254,
+      "y": 0.309,
+      "w": 0.235,
+      "h": 0.063,
+      "score": 1,
+      "text": "Jodhpur"
+    },
+    {
+      "x": 0.065,
+      "y": 0.415,
+      "w": 0.621,
+      "h": 0.065,
+      "score": 0.98,
+      "text": "who's booking the camp"
+    },
+    {
+      "x": 0.263,
+      "y": 0.529,
+      "w": 0.631,
+      "h": 0.051,
+      "score": 1,
+      "text": "me, Desert Rose camp, 2"
+    },
+    {
+      "x": 0.265,
+      "y": 0.581,
+      "w": 0.15,
+      "h": 0.053,
+      "score": 1,
+      "text": "tents"
+    },
+    {
+      "x": 0.069,
+      "y": 0.691,
+      "w": 0.558,
+      "h": 0.056,
+      "score": 1,
+      "text": "how much per person"
+    },
+    {
+      "x": 0.265,
+      "y": 0.799,
+      "w": 0.65,
+      "h": 0.056,
+      "score": 1,
+      "text": "2,400 with dinner and the"
+    },
+    {
+      "x": 0.254,
+      "y": 0.85,
+      "w": 0.296,
+      "h": 0.065,
+      "score": 1,
+      "text": "jeep safari"
+    },
+    {
+      "x": 0.071,
+      "y": 0.962,
+      "w": 0.535,
+      "h": 0.038,
+      "score": 0.98,
+      "text": "nice. pickup from the"
+    }
+  ]
+}

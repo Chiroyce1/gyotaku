@@ -1,0 +1,30 @@
+{
+  "id": "copied",
+  "name": "a copied picture",
+  "lines": [
+    {
+      "x": 0.367,
+      "y": 0.348,
+      "w": 0.272,
+      "h": 0.146,
+      "score": 1,
+      "text": "ship it"
+    },
+    {
+      "x": 0.311,
+      "y": 0.483,
+      "w": 0.37,
+      "h": 0.142,
+      "score": 0.98,
+      "text": "on friday"
+    },
+    {
+      "x": 0.067,
+      "y": 0.658,
+      "w": 0.861,
+      "h": 0.083,
+      "score": 0.99,
+      "text": "said nobody who had to fix it on saturday"
+    }
+  ]
+}

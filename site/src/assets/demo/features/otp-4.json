@@ -1,0 +1,30 @@
+{
+  "id": "otp-4",
+  "name": "a Zomato text message",
+  "lines": [
+    {
+      "x": 0.415,
+      "y": 0.202,
+      "w": 0.167,
+      "h": 0.073,
+      "score": 1,
+      "text": "Zomato"
+    },
+    {
+      "x": 0.398,
+      "y": 0.382,
+      "w": 0.198,
+      "h": 0.064,
+      "score": 1,
+      "text": "Today 09:41"
+    },
+    {
+      "x": 0.07,
+      "y": 0.518,
+      "w": 0.665,
+      "h": 0.08,
+      "score": 1,
+      "text": "6620 is your Zomato login OTP."
+    }
+  ]
+}

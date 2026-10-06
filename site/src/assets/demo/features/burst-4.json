@@ -1,0 +1,94 @@
+{
+  "id": "burst-4",
+  "name": "a group chat, shot 4 of 4",
+  "lines": [
+    {
+      "x": 0.2,
+      "y": 0.037,
+      "w": 0.44,
+      "h": 0.056,
+      "score": 0.99,
+      "text": "Trip to Jaisalmer"
+    },
+    {
+      "x": 0.202,
+      "y": 0.094,
+      "w": 0.369,
+      "h": 0.044,
+      "score": 1,
+      "text": "Aarav, Meera, you"
+    },
+    {
+      "x": 0.263,
+      "y": 0.169,
+      "w": 0.152,
+      "h": 0.054,
+      "score": 1,
+      "text": "tents"
+    },
+    {
+      "x": 0.069,
+      "y": 0.279,
+      "w": 0.556,
+      "h": 0.056,
+      "score": 1,
+      "text": "how much per person"
+    },
+    {
+      "x": 0.265,
+      "y": 0.388,
+      "w": 0.648,
+      "h": 0.053,
+      "score": 0.97,
+      "text": "2,400 with dinner and the"
+    },
+    {
+      "x": 0.256,
+      "y": 0.441,
+      "w": 0.29,
+      "h": 0.06,
+      "score": 1,
+      "text": "jeep safari"
+    },
+    {
+      "x": 0.071,
+      "y": 0.551,
+      "w": 0.529,
+      "h": 0.051,
+      "score": 1,
+      "text": "nice. pickup from the"
+    },
+    {
+      "x": 0.071,
+      "y": 0.606,
+      "w": 0.208,
+      "h": 0.05,
+      "score": 1,
+      "text": "station?"
+    },
+    {
+      "x": 0.265,
+      "y": 0.713,
+      "w": 0.637,
+      "h": 0.057,
+      "score": 1,
+      "text": "they said 6:30 am at gate"
+    },
+    {
+      "x": 0.069,
+      "y": 0.878,
+      "w": 0.606,
+      "h": 0.056,
+      "score": 0.99,
+      "text": "bring jackets, nights are"
+    },
+    {
+      "x": 0.069,
+      "y": 0.929,
+      "w": 0.123,
+      "h": 0.054,
+      "score": 1,
+      "text": "cold"
+    }
+  ]
+}

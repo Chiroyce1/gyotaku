@@ -1,0 +1,38 @@
+{
+  "id": "otp-1",
+  "name": "a HDFC Bank text message",
+  "lines": [
+    {
+      "x": 0.387,
+      "y": 0.202,
+      "w": 0.227,
+      "h": 0.071,
+      "score": 1,
+      "text": "HDFC Bank"
+    },
+    {
+      "x": 0.4,
+      "y": 0.382,
+      "w": 0.197,
+      "h": 0.064,
+      "score": 1,
+      "text": "Today 09:41"
+    },
+    {
+      "x": 0.068,
+      "y": 0.513,
+      "w": 0.692,
+      "h": 0.087,
+      "score": 1,
+      "text": "482913 is your OTP for login. Do"
+    },
+    {
+      "x": 0.072,
+      "y": 0.602,
+      "w": 0.262,
+      "h": 0.071,
+      "score": 1,
+      "text": "not share it."
+    }
+  ]
+}

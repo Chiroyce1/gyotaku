@@ -1,0 +1,38 @@
+{
+  "id": "otp-2",
+  "name": "a Swiggy text message",
+  "lines": [
+    {
+      "x": 0.418,
+      "y": 0.198,
+      "w": 0.16,
+      "h": 0.091,
+      "score": 1,
+      "text": "Swiggy"
+    },
+    {
+      "x": 0.4,
+      "y": 0.382,
+      "w": 0.197,
+      "h": 0.064,
+      "score": 1,
+      "text": "Today 09:41"
+    },
+    {
+      "x": 0.068,
+      "y": 0.513,
+      "w": 0.73,
+      "h": 0.087,
+      "score": 0.99,
+      "text": "Your Swiggy OTP is 7731. Valid for"
+    },
+    {
+      "x": 0.073,
+      "y": 0.6,
+      "w": 0.258,
+      "h": 0.078,
+      "score": 1,
+      "text": "10 minutes."
+    }
+  ]
+}

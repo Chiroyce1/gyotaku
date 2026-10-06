@@ -1,0 +1,38 @@
+{
+  "id": "otp-3",
+  "name": "a Google text message",
+  "lines": [
+    {
+      "x": 0.423,
+      "y": 0.2,
+      "w": 0.155,
+      "h": 0.082,
+      "score": 1,
+      "text": "Google"
+    },
+    {
+      "x": 0.402,
+      "y": 0.384,
+      "w": 0.193,
+      "h": 0.06,
+      "score": 0.99,
+      "text": "Today 09:41"
+    },
+    {
+      "x": 0.068,
+      "y": 0.516,
+      "w": 0.533,
+      "h": 0.084,
+      "score": 1,
+      "text": "G-305118 is your Google"
+    },
+    {
+      "x": 0.07,
+      "y": 0.6,
+      "w": 0.372,
+      "h": 0.073,
+      "score": 1,
+      "text": "verification code."
+    }
+  ]
+}

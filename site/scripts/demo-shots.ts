@@ -1,6 +1,7 @@
-// Makes the hero demo's screenshots and reads them with gyotaku itself.
+// Makes the demos' screenshots and reads them with gyotaku itself.
 //
-//   bun scripts/demo-shots.ts
+//   bun scripts/demo-shots.ts            the hero's eight (src/assets/demo)
+//   bun scripts/demo-shots.ts features   the feature demos' (src/assets/demo/features)
 //
 // Each screen below is drawn as a small page and photographed with Chrome at
 // 3x, the way a person would screenshot an app, then `gyotaku ocr --boxes`
@@ -25,10 +26,13 @@ const SCALE = 3;
 const font = (file: string) =>
   `data:font/ttf;base64,${readFileSync(join(FONTS, file)).toString("base64")}`;
 
-const BASE = `
+const BASE_FONTS = `
 @font-face { font-family: Inter; font-weight: 400; src: url(${font("Inter-400.ttf")}); }
 @font-face { font-family: Inter; font-weight: 600; src: url(${font("Inter-600.ttf")}); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+`;
+
+const BASE = `${BASE_FONTS}
 html, body { width: ${W}px; height: ${H}px; overflow: hidden; }
 body { font-family: Inter, sans-serif; -webkit-font-smoothing: antialiased; }
 `;
@@ -231,8 +235,13 @@ const SCREENS: Screen[] = [
 
 type Line = { text: string; x: number; y: number; w: number; h: number; score: number };
 
-function ocr(png: string): Line[] {
-  const out = execFileSync("gyotaku", ["ocr", "--boxes", png], { encoding: "utf8" });
+function ocr(png: string, scripts: string[] = []): Line[] {
+  const args = ["ocr", "--boxes", ...scripts.flatMap((s) => ["--script", s]), png];
+  // GYOTAKU picks a specific build, for when an older one is first on PATH.
+  const out = execFileSync(process.env.GYOTAKU ?? "gyotaku", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
   return out
     .split("\n")
     .map((row) => row.match(/^([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)\s+([\d.]+)\s+(.*)$/))
@@ -245,6 +254,12 @@ function ocr(png: string): Line[] {
       score: +m[5],
       text: m[6],
     }));
+}
+
+if (process.argv[2] === "features") {
+  const { makeFeatures } = await import("./feature-shots");
+  await makeFeatures({ ocr, base: BASE_FONTS, site: SITE });
+  process.exit(0);
 }
 
 mkdirSync(OUT, { recursive: true });

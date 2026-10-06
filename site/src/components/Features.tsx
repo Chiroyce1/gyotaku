@@ -3,12 +3,19 @@
 // Every feature as a small working piece of the app, not a picture of it:
 // each card's demo behaves the way gyotaku does (same rules, same keys), so
 // poking it is the explanation. Facts follow docs/usage.md.
+//
+// The screenshots are real: small pages rendered like the apps they imitate,
+// photographed with Chrome, and read by gyotaku's own OCR
+// (scripts/demo-shots.ts and scripts/feature-shots.ts). Every search, filter
+// and copy here runs over exactly the text gyotaku read, misreads included,
+// and lights the boxes it found. All the data in them is made up.
 
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -18,10 +25,12 @@ import { AnimatePresence, MotionConfig, motion, useInView } from "motion/react";
 import Image, { type StaticImageData } from "next/image";
 import { Noto_Sans_Devanagari } from "next/font/google";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
+import { DEMO_SHOTS } from "@/assets/demo";
+import { SHOTS } from "@/assets/demo/features";
 import redFuji from "@/assets/prints/red-fuji.jpg";
 import suddenShower from "@/assets/prints/sudden-shower.jpg";
 
-// Only this card needs it, so it never blocks the first paint.
+// Only the scripts card's chips need it, so it never blocks the first paint.
 const devanagari = Noto_Sans_Devanagari({
   subsets: ["devanagari"],
   weight: ["400", "500"],
@@ -33,11 +42,6 @@ const SPRING = { type: "spring", duration: 0.3, bounce: 0 } as const;
 const ICON_IN = { scale: 1, opacity: 1, filter: "blur(0px)" };
 const ICON_OUT = { scale: 0.25, opacity: 0, filter: "blur(4px)" };
 
-// Screenshots inside the demos keep their own colors in both themes, like a
-// real screenshot would.
-const PAPER = "#ffffff";
-const PAPER_INK = "#1c1c1e";
-const PAPER_DIM = "#6e6e73";
 
 /* ------------------------------------------------------------------ */
 /* Shared pieces                                                       */
@@ -50,7 +54,7 @@ function Card({
   title,
   body,
   wide,
-  height = 244,
+  height = 330,
   children,
 }: {
   title: string;
@@ -63,7 +67,11 @@ function Card({
     <li
       className={`flex flex-col overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow)] ${wide ? "sm:col-span-2" : ""}`}
     >
-      <div data-card={title} className="@container relative overflow-hidden border-b border-line" style={{ height }}>
+      <div
+        data-card={title}
+        className="@container relative overflow-hidden border-b border-line"
+        style={{ height, "--card-h": `${height}px` } as CSSProperties}
+      >
         {children}
       </div>
       <div className="flex flex-col gap-1 px-5 pt-4 pb-5">
@@ -254,40 +262,104 @@ function FolderIcon({ className = "size-3.5" }: { className?: string }) {
   );
 }
 
-// A line lit the way the app lights a match: a highlighter stroke of shu
-// tint with a hairline edge, solid for the text as read, dashed for a near
-// match.
-function lit(kind: "exact" | "near" | null, paper = PAPER): CSSProperties {
-  return {
-    position: "relative",
-    zIndex: 10,
-    borderRadius: 3,
-    margin: "0 -3px",
-    padding: "0 3px",
-    background: kind ? `linear-gradient(var(--shu-soft), var(--shu-soft)), ${paper}` : undefined,
-    boxShadow: kind === "exact" ? "inset 0 0 0 1px var(--shu)" : "inset 0 0 0 1px transparent",
-    outline: kind === "near" ? "1px dashed var(--shu)" : "1px dashed transparent",
-    outlineOffset: -1,
-    transition: `box-shadow 200ms ${EASE}, outline-color 200ms ${EASE}, background-color 200ms ${EASE}`,
+// Whether the page is dark, following both the system and the theme toggle
+// (which sets <html data-theme>). A pale screenshot faded on a dark panel
+// still reads as a grey slab, so it recedes further there.
+const DARK = "(prefers-color-scheme: dark)";
+function subscribeTheme(onChange: () => void) {
+  const media = matchMedia(DARK);
+  const observer = new MutationObserver(onChange);
+  media.addEventListener("change", onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => {
+    media.removeEventListener("change", onChange);
+    observer.disconnect();
   };
 }
+function useDark() {
+  return useSyncExternalStore(
+    subscribeTheme,
+    () => {
+      const t = document.documentElement.dataset.theme;
+      return t ? t === "dark" : matchMedia(DARK).matches;
+    },
+    () => false,
+  );
+}
 
-// A screenshot tile: a match stays bright with a shu ring just outside it.
-// Anything without the word recedes: its paper goes, leaving only the
-// slot's hairline and faint text, so on a dark panel it sinks away instead
-// of sitting there as a grey slab. Never a grey veil.
+type OcrLine = { text: string; x: number; y: number; w: number; h: number; score: number };
+type ShotData = { id: string; name: string; lines: OcrLine[]; image: StaticImageData };
+
+// A real screenshot at its own proportions, with the boxes gyotaku read
+// drawn over it in fractions of the picture, so a lit line lands on its words
+// at any size. Solid for the text as read, dashed for a near match.
+function Shot({
+  shot,
+  hits,
+  sizes,
+  className = "",
+  eager = false,
+}: {
+  shot: ShotData;
+  hits?: Hit[];
+  sizes: string;
+  className?: string;
+  eager?: boolean;
+}) {
+  return (
+    <div
+      className={`relative w-full ${className}`}
+      style={{ aspectRatio: `${shot.image.width} / ${shot.image.height}` }}
+    >
+      <Image
+        src={shot.image}
+        alt={`Screenshot of ${shot.name}`}
+        fill
+        placeholder="blur"
+        loading={eager ? "eager" : "lazy"}
+        sizes={sizes}
+        draggable={false}
+        className="object-cover select-none"
+      />
+      {hits &&
+        shot.lines.map((line, i) => (
+          <span
+            key={i}
+            aria-hidden
+            className="absolute rounded-[2px] motion-reduce:transition-none"
+            style={{
+              left: `calc(${line.x * 100}% - 2px)`,
+              top: `calc(${line.y * 100}% - 1px)`,
+              width: `calc(${line.w * 100}% + 4px)`,
+              height: `calc(${line.h * 100}% + 2px)`,
+              opacity: hits[i] ? 1 : 0,
+              scale: hits[i] ? 1 : 0.96,
+              background: "rgb(255 116 56 / 0.22)",
+              boxShadow: hits[i] === "near" ? "none" : "inset 0 0 0 1px var(--shu)",
+              outline: hits[i] === "near" ? "1px dashed var(--shu)" : "none",
+              outlineOffset: "-1px",
+              transition: `opacity 200ms ${EASE}, scale 200ms ${EASE}`,
+            }}
+          />
+        ))}
+    </div>
+  );
+}
+
+// How a screenshot tile sits in a set of results: a match stays exactly as
+// bright as it was, ringed in shu with a sliver of window between; anything
+// without the word recedes, faded and drained of color. Never a grey veil.
 // `scale` is left out on motion elements, where Motion owns the transform.
-function tileState(found: boolean, searching: boolean, withScale = true): CSSProperties {
+function tileState(found: boolean, searching: boolean, dark: boolean, withScale = true): CSSProperties {
   const recede = searching && !found;
   return {
-    ...(recede ? { backgroundColor: "transparent" } : {}),
-    opacity: recede ? 0.45 : 1,
+    opacity: recede ? (dark ? 0.12 : 0.32) : 1,
     filter: recede ? "grayscale(1)" : "grayscale(0)",
     ...(withScale ? { scale: recede ? 0.985 : 1 } : {}),
     boxShadow: found
       ? "0 0 0 2px var(--panel), 0 0 0 3.5px var(--shu)"
       : "0 0 0 2px transparent, 0 0 0 3.5px transparent",
-    transition: `background-color 220ms ${EASE}, opacity 220ms ${EASE}, filter 220ms ${EASE}, scale 220ms ${EASE}, box-shadow 220ms ${EASE}`,
+    transition: `opacity 220ms ${EASE}, filter 220ms ${EASE}, scale 220ms ${EASE}, box-shadow 220ms ${EASE}`,
   };
 }
 
@@ -318,34 +390,25 @@ function hitOf(line: string, q: string): Hit {
   return null;
 }
 
-const NEAR_SHOTS = [
-  {
-    id: "mail",
-    head: "Fern & Co",
-    lines: ["Your invoice is ready", "Invoice #4021", "Amount due 2,340.00", "Due by 12 Oct"],
-  },
-  {
-    id: "order",
-    head: "Order confirmed",
-    // Read with a lowercase l for the capital I, the commonest misread there is.
-    lines: ["Thanks for shopping", "lnvoice #3907", "Paid with UPI", "Arrives Tuesday"],
-  },
-  {
-    id: "chat",
-    head: "Mum",
-    lines: ["call me when you land", "ok, at the gate", "boarding now", "safe flight!"],
-  },
-] as const;
+// The order confirmation's fine print says "Invoice #3907", and gyotaku's OCR
+// really reads it as "Involce #3907" (an i for an l, the commonest misread
+// there is), from a screenshot taken at 1x like an older laptop's. Nothing
+// here is typed in by hand; the near match below is that real misread.
+const NEAR_SHOTS = [SHOTS.nearMail, SHOTS.nearOrder, SHOTS.nearChat];
 
 const RANK: Record<string, number> = { exact: 0, near: 1, none: 2 };
 
 function NearDemo() {
   const [query, setQuery] = useState("invoice");
   const q = query.trim().toLowerCase();
+  const dark = useDark();
 
   const shots = NEAR_SHOTS.map((s) => {
-    const hits = s.lines.map((l) => hitOf(l, q));
-    const best: Hit = hits.includes("exact") ? "exact" : hits.includes("near") ? "near" : null;
+    const raw = s.lines.map((l) => hitOf(l.text, q));
+    // As in the app, a screenshot with an exact hit shows only those.
+    const exactHere = raw.includes("exact");
+    const hits = raw.map((h) => (h === "near" && exactHere ? null : h));
+    const best: Hit = exactHere ? "exact" : raw.includes("near") ? "near" : null;
     return { ...s, hits, best };
   });
   // Exact matches always come first, near ones after, the rest sink.
@@ -376,25 +439,20 @@ function NearDemo() {
       {/* Three screenshots where the window is wide; on a phone the two that
           rank first, with room for their lines to wrap instead of cutting
           off the word that's lit. */}
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 p-2.5 @min-[26rem]:grid-cols-3">
+      {/* Each tile hugs its screenshot, cut off at the window's edge if it's
+          taller, never padded out with blank paper. */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] items-start gap-2.5 p-3 @min-[26rem]:grid-cols-3">
         {ordered.map((s, rank) => (
           <motion.div
             layout
             transition={SPRING}
             key={s.id}
-            className={`relative overflow-hidden rounded-[6px] p-2 outline outline-1 -outline-offset-1 outline-[var(--outline)] sm:p-3 ${
+            className={`relative max-h-full min-h-0 overflow-hidden rounded-[6px] bg-white outline outline-1 -outline-offset-1 outline-[var(--outline)] ${
               rank === 2 ? "hidden @min-[26rem]:block" : ""
             }`}
-            style={{ backgroundColor: PAPER, color: PAPER_INK, ...tileState(s.best !== null, q !== "", false) }}
+            style={tileState(s.best !== null, q !== "", dark, false)}
           >
-            <p className="text-[12px] font-semibold @min-[26rem]:truncate">{s.head}</p>
-            <div className="mt-1.5 flex flex-col items-start gap-1 text-[11px] leading-snug sm:text-[12px]">
-              {s.lines.map((l, i) => (
-                <span key={l} className="max-w-full break-words @min-[26rem]:truncate" style={lit(s.hits[i])}>
-                  {l}
-                </span>
-              ))}
-            </div>
+            <Shot shot={s} hits={s.hits} sizes="(min-width: 1024px) 200px, 45vw" />
             <span
               className="absolute bottom-1.5 left-1.5 z-[25] rounded-full border border-black/10 bg-white px-1.5 py-0.5 text-[10px] text-[#6e6e73] sm:bottom-2 sm:left-2"
               style={{
@@ -440,16 +498,17 @@ function NearDemo() {
 
 const DATES: Record<string, number> = { today: 0, yesterday: 1, week: 6 };
 
-const ROWS = [
-  { folder: "Discord", age: 0, text: "error: cannot find module 'sharp'" },
-  { folder: "Discord", age: 1, text: "build error on main, see the logs" },
-  { folder: "Screenshots", age: 1, text: "Error 502 Bad Gateway" },
-  { folder: "Discord", age: 3, text: "lunch at 1? the usual place" },
-  { folder: "Screenshots", age: 0, text: "Invoice #4021, amount due" },
-  { folder: "Downloads", age: 9, text: "error rate 0.2% over the week" },
-] as const;
-
-const AGE = ["today", "yesterday", "", "3 days ago", "", "", "", "", "", "last week"];
+// The hero's screenshots again, each filed in a folder and taken some days
+// ago, the two things the filters look at.
+const FILED: { id: string; folder: string; age: number }[] = [
+  { id: "terminal", folder: "Discord", age: 0 },
+  { id: "otp", folder: "Discord", age: 1 },
+  { id: "invoice", folder: "Screenshots", age: 0 },
+  { id: "boarding", folder: "Screenshots", age: 1 },
+  { id: "sheet", folder: "Downloads", age: 3 },
+  { id: "notes", folder: "Screenshots", age: 9 },
+];
+const ROWS = FILED.map((f) => ({ ...f, shot: DEMO_SHOTS.find((s) => s.id === f.id)! }));
 
 type Token = { text: string; filter: boolean };
 
@@ -486,14 +545,17 @@ function FiltersDemo() {
   const [query, setQuery] = useState("error in:discord");
   const mirror = useRef<HTMLDivElement>(null);
   const { tokens, words, folder, within } = parseQuery(query);
+  const dark = useDark();
 
+  // Every word somewhere in what gyotaku read, not necessarily one line.
   const matches = ROWS.map(
     (r) =>
-      words.every((w) => r.text.toLowerCase().includes(w)) &&
+      words.every((w) => r.shot.lines.some((l) => l.text.toLowerCase().includes(w))) &&
       (!folder || r.folder.toLowerCase().startsWith(folder)) &&
       (!within || (r.age >= within[0] && r.age <= within[1])),
   );
   const count = matches.filter(Boolean).length;
+  const searching = query.trim() !== "";
 
   const toggle = (chip: string) => {
     const key = chip.split(":")[0];
@@ -543,30 +605,30 @@ function FiltersDemo() {
         </span>
       </label>
 
-      <ul className="flex min-h-0 flex-1 flex-col justify-center px-2.5 py-1.5">
-        {ROWS.map((r, i) => (
-          <li
-            key={r.text}
-            className="relative flex h-[23px] shrink-0 items-center gap-2.5 rounded-[6px] pr-2 pl-3 text-[12px]"
-            style={{
-              opacity: matches[i] ? 1 : 0.32,
-              transition: `opacity 200ms ${EASE}`,
-            }}
-          >
-            <span
-              aria-hidden
-              className="absolute top-1.5 bottom-1.5 left-0 w-[2px] origin-center rounded-full bg-shu"
-              style={{
-                transform: matches[i] ? "scaleY(1)" : "scaleY(0.3)",
-                opacity: matches[i] ? 1 : 0,
-                transition: `transform 220ms ${EASE}, opacity 220ms ${EASE}`,
-              }}
-            />
-            <span className="w-[78px] shrink-0 truncate font-mono text-[11px] text-faint">{r.folder}</span>
-            <span className="min-w-0 flex-1 truncate text-ink">{r.text}</span>
-            <span className="hidden shrink-0 text-[11px] text-faint min-[420px]:block">{AGE[r.age]}</span>
-          </li>
-        ))}
+      {/* The results, as tiles like the app shows them, each captioned with
+          the folder and day the filters read. */}
+      <ul className="grid min-h-0 flex-1 grid-cols-3 content-center gap-x-2.5 gap-y-2 px-3 py-2.5">
+        {ROWS.map((r, i) => {
+          const hits = r.shot.lines.map((l) =>
+            matches[i] && words.some((w) => l.text.toLowerCase().includes(w)) ? ("exact" as const) : null,
+          );
+          return (
+            <li key={r.id} className="flex min-w-0 flex-col gap-1">
+              <div
+                className="overflow-hidden rounded-[5px] outline outline-1 -outline-offset-1 outline-[var(--outline)]"
+                style={tileState(searching && matches[i], searching, dark)}
+              >
+                <Shot shot={r.shot} hits={hits} sizes="120px" />
+              </div>
+              <span
+                className="truncate text-[11px] text-faint"
+                style={{ opacity: !searching || matches[i] ? 1 : 0.5, transition: `opacity 220ms ${EASE}` }}
+              >
+                {r.folder} · {r.age === 0 ? "today" : `${r.age}d`}
+              </span>
+            </li>
+          );
+        })}
       </ul>
 
       <div
@@ -598,11 +660,12 @@ function FiltersDemo() {
 /* 3. Bulk trash with undo                                             */
 /* ------------------------------------------------------------------ */
 
+// Four real one-time code screenshots: what "otp" finds.
 const OTPS = [
-  { id: 1, from: "HDFC Bank", code: "482913" },
-  { id: 2, from: "Swiggy", code: "7731" },
-  { id: 3, from: "Google", code: "G-305118" },
-  { id: 4, from: "Zomato", code: "6620" },
+  { id: 1, from: "HDFC Bank", shot: SHOTS.otp1 },
+  { id: 2, from: "Swiggy", shot: SHOTS.otp2 },
+  { id: 3, from: "Google", shot: SHOTS.otp3 },
+  { id: 4, from: "Zomato", shot: SHOTS.otp4 },
 ];
 
 function TrashDemo() {
@@ -678,10 +741,9 @@ function TrashDemo() {
       </div>
 
       {/* The tiles sit in the space above the bar, so it never covers them. */}
-      <div className="relative flex min-h-0 flex-1 items-center px-2.5 pt-2.5 pb-[60px]">
-        {/* Four across where the card is wide enough to read each code; a
-            two by two grid on a narrow phone, so none is cut short. */}
-        <ul className="grid w-full grid-cols-2 gap-2 @min-[21rem]:grid-cols-4">
+      <div className="relative flex min-h-0 flex-1 items-center px-3 pt-3 pb-[60px]">
+        {/* Two by two, so each message stays big enough to read. */}
+        <ul className="grid w-full grid-cols-2 gap-2.5">
           <AnimatePresence mode="popLayout" initial={false}>
             {OTPS.filter((o) => here.includes(o.id)).map((o) => {
               const on = marked.includes(o.id);
@@ -693,17 +755,16 @@ function TrashDemo() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.96, y: 4, transition: { duration: 0.18 } }}
                   transition={SPRING}
-                  className="h-[58px] @min-[21rem]:h-[92px]"
                 >
                   <button
                     type="button"
                     aria-pressed={on}
                     aria-label={`${o.from} one-time code`}
                     onClick={() => toggle(o.id)}
-                    className="press relative flex size-full flex-col rounded-[6px] p-2 text-left"
+                    // Cropped from the top: the sender and the message, without
+                    // the empty thread below them.
+                    className="press relative block aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-white"
                     style={{
-                      background: PAPER,
-                      color: PAPER_INK,
                       // A hairline edge always; marked adds the shu ring
                       // outside it, with a sliver of card between.
                       boxShadow: on
@@ -712,13 +773,7 @@ function TrashDemo() {
                       transition: `box-shadow 150ms ${EASE}, scale 160ms ${EASE}`,
                     }}
                   >
-                    <span className="truncate text-[10px]" style={{ color: PAPER_DIM }}>
-                      {o.from}
-                    </span>
-                    <span className="mt-1 hidden text-[10px] leading-tight @min-[21rem]:block">Your OTP is</span>
-                    <span className="truncate font-mono text-[12px] font-semibold tracking-wide @min-[21rem]:text-[11px] @min-[21rem]:tracking-normal @min-[26rem]:text-[12px] @min-[26rem]:tracking-wide">
-                      {o.code}
-                    </span>
+                    <Shot shot={o.shot} sizes="180px" />
                     <motion.span
                       aria-hidden
                       className="absolute top-1.5 right-1.5 grid size-4 place-items-center rounded-full bg-shu text-[var(--on-shu,#fff)]"
@@ -798,20 +853,22 @@ function TrashDemo() {
 /* 4. Similar screenshots fold into one                                */
 /* ------------------------------------------------------------------ */
 
-const BURST = 4;
-const W = 76;
-const H = 104;
-const STEP = 86;
+// Four real shots of one group chat, taken while scrolling.
+const BURST_SHOTS = [SHOTS.burst1, SHOTS.burst2, SHOTS.burst3, SHOTS.burst4];
+const BURST = BURST_SHOTS.length;
+const W = 160;
+const H = Math.round((W * SHOTS.burst1.image.height) / SHOTS.burst1.image.width);
+const STEP = 178;
 // Room kept clear at each side of the unfolded row.
-const SIDE = 12;
+const SIDE = 16;
 
 // Folded: stacked behind the newest, each a little askew. Unfolded: in a
 // row, the rest right after it, overlapping a little where the window is too
 // narrow to lay them side by side.
 function burstPose(i: number, open: boolean, step: number) {
   if (open) return { x: (i - (BURST - 1) / 2) * step - W / 2, y: 0, rotate: 0 };
-  const tilt = [0, -5, 4, -2][i];
-  return { x: -W / 2 + i * 5, y: -i * 4, rotate: tilt };
+  const tilt = [0, -4, 3.5, -2][i];
+  return { x: -W / 2 + i * 7, y: -i * 6, rotate: tilt };
 }
 
 function BurstDemo() {
@@ -871,17 +928,17 @@ function BurstDemo() {
       }}
       className="feat-group relative h-full"
     >
-      <div className="absolute top-1/2 left-1/2" style={{ marginTop: -H / 2 - 8 }}>
+      <div className="absolute top-1/2 left-1/2" style={{ marginTop: -H / 2 - 22 }}>
         {Array.from({ length: BURST }, (_, i) => BURST - 1 - i).map((i) => (
           <motion.div
             key={i}
-            className="absolute top-0 left-0 overflow-hidden rounded-[6px] shadow-[0_1px_2px_rgb(0_0_0/0.12),0_6px_14px_-6px_rgb(0_0_0/0.3)]"
-            style={{ width: W, height: H, background: PAPER, zIndex: BURST - i }}
+            className="absolute top-0 left-0 overflow-hidden rounded-[8px] bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.06),0_2px_4px_rgb(0_0_0/0.1),0_12px_28px_-10px_rgb(0_0_0/0.35)]"
+            style={{ width: W, height: H, zIndex: BURST - i }}
             initial={false}
             animate={burstPose(i, open, step)}
             transition={{ type: "spring", duration: 0.45, bounce: 0, delay: open ? i * 0.03 : (BURST - 1 - i) * 0.02 }}
           >
-            <ChatShot scroll={i} />
+            <Shot shot={BURST_SHOTS[i]} sizes="160px" eager={i === 0} />
           </motion.div>
         ))}
       </div>
@@ -918,55 +975,18 @@ function BurstDemo() {
   );
 }
 
-// One chat, shot four times while scrolling: each a little further down.
-const CHAT = [
-  { me: false, w: 70 },
-  { me: true, w: 55 },
-  { me: false, w: 80 },
-  { me: false, w: 45 },
-  { me: true, w: 65 },
-  { me: false, w: 60 },
-  { me: true, w: 40 },
-  { me: false, w: 75 },
-];
-
-function ChatShot({ scroll }: { scroll: number }) {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-4 shrink-0 items-center gap-1 border-b border-black/[0.06] px-1.5">
-        <span className="size-1.5 rounded-full bg-[#5b8def]" />
-        <span className="h-1 w-6 rounded-full bg-black/20" />
-      </div>
-      <div className="flex flex-col gap-1 px-1.5 pt-1.5" style={{ transform: `translateY(${-scroll * 9}px)` }}>
-        {CHAT.map((m, i) => (
-          <span
-            key={i}
-            className={`h-2.5 rounded-[4px] ${m.me ? "self-end bg-[#0a84ff]" : "self-start bg-[#e9e9eb]"}`}
-            style={{ width: `${m.w}%` }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* 5. Copy just the part you need                                      */
 /* ------------------------------------------------------------------ */
 
-const BOOKING = [
-  "Booking confirmed",
-  "Hotel Sagar, Jodhpur",
-  "Check-in  Fri 9 Oct, 2 pm",
-  "Confirmation  HS-77120",
-  "Wi-Fi  sagar-guest / lemon-tree-42",
-];
+// A real booking confirmation and the lines gyotaku read from it, each with
+// its box. A drag picks every line its box touches, like the app's open view.
+const BOOKING = SHOTS.booking;
 
 type Box = { x: number; y: number; w: number; h: number };
 
 function CopyDemo() {
   const shot = useRef<HTMLDivElement>(null);
-  const lines = useRef<(HTMLButtonElement | null)[]>([]);
   const start = useRef<{ x: number; y: number } | null>(null);
   // Set once a press turns into a drag, so the click that ends it doesn't
   // also copy the single line it ended on.
@@ -976,22 +996,19 @@ function CopyDemo() {
   const [message, flash] = useFlash();
 
   const copy = (idx: number[]) => {
-    const text = idx.map((i) => BOOKING[i]).join("\n");
+    const text = idx.map((i) => BOOKING.lines[i].text).join("\n");
     navigator.clipboard?.writeText(text).catch(() => {});
     flash(idx.length === 1 ? "copied 1 line" : `copied ${idx.length} lines`);
   };
 
+  // The drag box against each OCR box, both in fractions of the picture.
   const within = (b: Box) => {
-    const root = shot.current?.getBoundingClientRect();
-    if (!root) return [];
-    return lines.current.flatMap((el, i) => {
-      if (!el) return [];
-      const r = el.getBoundingClientRect();
-      const x = r.left - root.left;
-      const y = r.top - root.top;
-      const hit = x < b.x + b.w && x + r.width > b.x && y < b.y + b.h && y + r.height > b.y;
-      return hit ? [i] : [];
-    });
+    const r = shot.current?.getBoundingClientRect();
+    if (!r?.width) return [];
+    const f = { x: b.x / r.width, y: b.y / r.height, w: b.w / r.width, h: b.h / r.height };
+    return BOOKING.lines.flatMap((l, i) =>
+      l.x < f.x + f.w && l.x + l.w > f.x && l.y < f.y + f.h && l.y + l.h > f.y ? [i] : [],
+    );
   };
 
   // Measured on screen. Inside a zoomed showcase the screen is larger than
@@ -1036,44 +1053,48 @@ function CopyDemo() {
   };
 
   return (
-    <div className="grid h-full place-items-center p-3">
+    <div className="grid h-full place-items-center p-3 sm:p-4">
       <div
         ref={shot}
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
-        className="group relative w-full max-w-[340px] cursor-crosshair rounded-[8px] p-3.5 outline outline-1 -outline-offset-1 outline-[var(--outline)] select-none"
-        style={{ background: PAPER, color: PAPER_INK }}
+        // As large as the window allows at the picture's own proportions.
+        className="group relative w-full cursor-crosshair overflow-hidden rounded-[8px] bg-white outline outline-1 -outline-offset-1 outline-[var(--outline)] select-none"
+        style={{
+          maxWidth: `min(100%, calc((var(--h) - 32px) * ${BOOKING.image.width / BOOKING.image.height}))`,
+        }}
       >
-        <div className="flex flex-col items-start gap-1">
-          {BOOKING.map((l, i) => (
-            <button
-              key={l}
-              ref={(el) => {
-                lines.current[i] = el;
-              }}
-              type="button"
-              onClick={() => {
-                if (dragged.current) {
-                  dragged.current = false;
-                  return;
-                }
-                copy([i]);
-              }}
-              className={`max-w-full rounded-[3px] px-1 text-left break-words @min-[22rem]:truncate ${
-                i === 0 ? "text-[13px] font-semibold" : "font-mono text-[11.5px]"
-              } [@media(hover:hover)_and_(pointer:fine)]:group-hover:shadow-[0_0_0_1px_rgb(0_0_0/0.08)]`}
-              style={{
-                background: picked.includes(i) ? "var(--shu-soft)" : "transparent",
-                boxShadow: picked.includes(i) ? "inset 0 0 0 1px var(--shu)" : "inset 0 0 0 1px transparent",
-                transition: `background-color 120ms ${EASE}, box-shadow 120ms ${EASE}`,
-              }}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
+        <Shot
+          shot={BOOKING}
+          hits={BOOKING.lines.map((_, i) => (picked.includes(i) ? "exact" : null))}
+          sizes="(min-width: 1024px) 520px, 90vw"
+        />
+        {/* Each line gyotaku read is also a button over its own box: a click
+            or a tap copies just that line, and a hover shows where it is. */}
+        {BOOKING.lines.map((l, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`Copy "${l.text}"`}
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false;
+                return;
+              }
+              copy([i]);
+            }}
+            className="absolute rounded-[2px] [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-[inset_0_0_0_1px_rgb(0_0_0/0.18)]"
+            style={{
+              left: `calc(${l.x * 100}% - 2px)`,
+              top: `calc(${l.y * 100}% - 1px)`,
+              width: `calc(${l.w * 100}% + 4px)`,
+              height: `calc(${l.h * 100}% + 2px)`,
+              transition: `box-shadow 120ms ${EASE}`,
+            }}
+          />
+        ))}
         {box && (
           <span
             aria-hidden
@@ -1110,6 +1131,11 @@ function stamp() {
   const p = (n: number) => String(n).padStart(2, "0");
   return `Clipboard ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}.png`;
 }
+
+// A real picture someone copies from a chat and never saves, and what
+// gyotaku reads from it once it lands in the folder.
+const COPIED = SHOTS.copied;
+const COPIED_TEXT = COPIED.lines.map((l) => l.text).join(" ");
 
 function ClipboardDemo() {
   const [on, setOn] = useState(true);
@@ -1153,9 +1179,13 @@ function ClipboardDemo() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[12px] text-dim">save copied images</span>
+    <div className="flex h-full flex-col gap-2 p-3">
+      {/* The settings row it's turned on from. */}
+      <div className="flex items-center justify-between gap-3 rounded-[8px] bg-sunk px-3 py-2">
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[13px] text-ink">save copied images</span>
+          <span className="truncate text-[11px] text-faint">so pictures you only copied are searchable too</span>
+        </span>
         {/* 44px wide hit area around a 36px switch. */}
         <button
           ref={toggle}
@@ -1190,8 +1220,8 @@ function ClipboardDemo() {
       >
         {/* Somewhere else on the screen: a picture someone copies. */}
         <div className="flex items-center gap-3 @min-[22rem]:flex-1 @min-[22rem]:flex-col @min-[22rem]:gap-2">
-          <div ref={source} className="relative h-[56px] w-[80px] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)] @min-[22rem]:h-[72px] @min-[22rem]:w-[104px]">
-            <Picture />
+          <div ref={source} className="relative w-[112px] overflow-hidden rounded-[6px] outline outline-1 -outline-offset-1 outline-[var(--outline)] @min-[22rem]:w-[132px]">
+            <Shot shot={COPIED} sizes="132px" />
           </div>
           <button
             type="button"
@@ -1235,7 +1265,7 @@ function ClipboardDemo() {
           <motion.div
             key={f.id}
             aria-hidden
-            className="pointer-events-none absolute z-20 h-[56px] w-[80px] overflow-hidden rounded-[6px] shadow-[0_8px_20px_-6px_rgb(0_0_0/0.35)] @min-[22rem]:h-[72px] @min-[22rem]:w-[104px]"
+            className="pointer-events-none absolute z-20 w-[112px] overflow-hidden rounded-[6px] shadow-[0_8px_20px_-6px_rgb(0_0_0/0.35)] @min-[22rem]:w-[132px]"
             style={{ left: f.left, top: f.top }}
             initial={{ x: 0, y: 0, scale: 1, opacity: 1 }}
             animate={{ x: f.dx, y: f.dy, scale: 0.25, opacity: [1, 1, 0] }}
@@ -1245,7 +1275,7 @@ function ClipboardDemo() {
               land();
             }}
           >
-            <Picture />
+            <Shot shot={COPIED} sizes="132px" />
           </motion.div>
         ))}
       </div>
@@ -1260,9 +1290,11 @@ function ClipboardDemo() {
             animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
             transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
             className="flex min-w-0 items-center gap-1.5"
+            title={last}
           >
             <span className="size-1.5 shrink-0 rounded-full bg-shu" />
-            <span className="truncate font-mono text-[11px] text-dim">{last}</span>
+            {/* What gyotaku read from the saved picture: now findable. */}
+            <span className="truncate text-dim">&ldquo;{COPIED_TEXT}&rdquo;</span>
             <span className="shrink-0 text-ink">searchable</span>
           </motion.span>
         ) : (
@@ -1273,31 +1305,19 @@ function ClipboardDemo() {
   );
 }
 
-// A meme-ish picture with a caption: the kind of thing people copy.
-function Picture() {
-  return (
-    <div className="relative size-full" style={{ background: "linear-gradient(160deg, #f6d38b, #e98b5d)" }}>
-      <span className="absolute bottom-2 left-1/2 size-7 -translate-x-1/2 rounded-full bg-[#1c1c1e]/80" />
-      <span className="absolute bottom-0 left-1/2 h-3 w-12 -translate-x-1/2 rounded-t-full bg-[#1c1c1e]/80" />
-      <span className="absolute inset-x-0 top-1.5 text-center text-[9px] font-bold tracking-wide text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.5)]">
-        WHEN THE BUILD PASSES
-      </span>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* 7. Devanagari and vertical text                                     */
 /* ------------------------------------------------------------------ */
 
-const HINDI = ["ऑर्डर #4021 का स्टेटस", "डिलीवरी आज शाम तक", "पता: जोधपुर, राजस्थान"];
-const VERTICAL = "縦書きのテキスト";
+// A Hindi order update with a vertical Japanese label beside it, read with
+// Devanagari turned on. gyotaku's reading of the title drops a letter
+// ("ऑ्डर" for "ऑर्डर"), kept as read; the words searched for here read cleanly.
+const SCRIPTS = SHOTS.scripts;
 
 function ScriptsDemo() {
   const [q, setQ] = useState<string | null>("स्टेटस");
-  const hits = HINDI.map((l) => (q && l.includes(q) ? "exact" : null));
-  const vertical = !!q && VERTICAL.includes(q);
-  const any = hits.some(Boolean) || vertical;
+  const hits = SCRIPTS.lines.map((l) => (q && l.text.includes(q) ? ("exact" as const) : null));
+  const any = hits.some(Boolean);
 
   return (
     <div className="flex h-full flex-col">
@@ -1308,34 +1328,12 @@ function ScriptsDemo() {
         </span>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-stretch gap-2.5 p-2.5">
+      <div className="grid min-h-0 flex-1 place-items-center p-3">
         <div
-          className="relative min-w-0 flex-1 overflow-hidden rounded-[6px] p-3 outline outline-1 -outline-offset-1 outline-[var(--outline)]"
-          style={{ backgroundColor: PAPER, color: PAPER_INK, ...tileState(hits.some(Boolean), !!q) }}
+          className="w-full overflow-hidden rounded-[6px] bg-white outline outline-1 -outline-offset-1 outline-[var(--outline)]"
+          style={{ maxWidth: `calc((var(--card-h) - 112px) * ${SCRIPTS.image.width / SCRIPTS.image.height})` }}
         >
-          <p className="text-[10px] font-semibold tracking-wide" style={{ color: PAPER_DIM }}>
-            ORDERS
-          </p>
-          <div className={`mt-1.5 flex flex-col items-start gap-1 text-[13px] ${devanagari.className}`}>
-            {HINDI.map((l, i) => (
-              <span key={l} className="max-w-full truncate" style={lit(hits[i])}>
-                {l}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* A sign written top to bottom, read as a column. */}
-        <div
-          className="relative w-12 shrink-0 overflow-hidden rounded-[6px] py-3 outline outline-1 -outline-offset-1 outline-[var(--outline)]"
-          style={{ backgroundColor: "#f7efe2", color: PAPER_INK, ...tileState(vertical, !!q) }}
-        >
-          <span
-            className="mx-auto block text-[12px] leading-none tracking-[0.12em] [writing-mode:vertical-rl]"
-            style={lit(vertical ? "exact" : null, "#f7efe2")}
-          >
-            {VERTICAL}
-          </span>
+          <Shot shot={SCRIPTS} hits={hits} sizes="(min-width: 1024px) 360px, 90vw" />
         </div>
       </div>
 
@@ -1366,10 +1364,15 @@ function ScriptsDemo() {
 /* 8. Rebind any shortcut                                              */
 /* ------------------------------------------------------------------ */
 
+// The app's defaults (docs/usage.md). Three show on a phone, all six where
+// the card has room for two columns.
 const COMMANDS = [
   { id: "trash", name: "move to the trash", keys: ["ctrl", "delete"] },
   { id: "all", name: "mark every result", keys: ["ctrl", "shift", "a"] },
   { id: "similar", name: "show similar", keys: ["ctrl", "e"] },
+  { id: "text", name: "copy the text", keys: ["ctrl", "c"] },
+  { id: "image", name: "copy the image", keys: ["ctrl", "shift", "c"] },
+  { id: "settings", name: "open settings", keys: ["ctrl", ","] },
 ];
 
 const MODS = ["Control", "Shift", "Alt", "Meta"];
@@ -1434,10 +1437,11 @@ function ShortcutsDemo() {
   }, [fresh]);
 
   return (
-    // A slice of the settings page: a narrow list, names and keys close
-    // enough to read as pairs.
-    <div className="mx-auto flex h-full w-full max-w-[460px] flex-col justify-center gap-1 px-1.5 py-2.5 @min-[22rem]:px-2.5">
-      <p className="px-3 pb-1 text-[11px] font-medium tracking-wide text-faint">SHORTCUTS</p>
+    // A slice of the settings page: rows of a name and its keys, the keys in
+    // one right-aligned column, a hairline between rows.
+    <div className="flex h-full flex-col justify-center px-3 py-3 @min-[22rem]:px-5">
+      <p className="px-3 pb-2 text-[11px] font-medium tracking-wide text-faint">SHORTCUTS</p>
+      <div className="grid grid-cols-1 gap-x-8 @min-[34rem]:grid-flow-col @min-[34rem]:grid-cols-2 @min-[34rem]:grid-rows-3">
       {COMMANDS.map((c, i) => {
         const rec = recording === i;
         const err = error?.row === i ? error : null;
@@ -1461,7 +1465,9 @@ function ShortcutsDemo() {
             }}
             onBlur={() => rec && stop()}
             aria-label={`${c.name}: ${keys[i].join(" ")}. Press Enter, then the new keys.`}
-            className="press flex h-11 shrink-0 items-center gap-2 rounded-[8px] px-2 text-left @min-[22rem]:gap-3 @min-[22rem]:px-3"
+            className={`press relative h-14 shrink-0 items-center gap-3 rounded-[8px] px-3 text-left after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-line [&:nth-child(3n)]:after:hidden ${
+              i >= 3 ? "hidden @min-[34rem]:flex" : "flex"
+            }`}
             style={{
               background: rec ? "var(--sunk)" : "transparent",
               boxShadow: rec ? "0 0 0 1.5px var(--shu)" : "0 0 0 1.5px transparent",
@@ -1470,14 +1476,14 @@ function ShortcutsDemo() {
           >
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[13px] text-ink @min-[22rem]:text-[14px]">{c.name}</span>
-              <span
-                className="h-4 text-[11px]"
-                // A refusal is said plainly in ink, with the shake; shu is
-                // kept for what's found or being recorded.
-                style={{ color: err ? "var(--ink)" : "var(--faint)", transition: `color 150ms ${EASE}` }}
-              >
-                {err ? err.text : rec ? "escape cancels, delete resets" : ""}
-              </span>
+              {/* Only there while recording or refusing, so at rest the name
+                  sits level with its keys. A refusal is said plainly in ink,
+                  with the shake; shu is kept for what's being recorded. */}
+              {(err || rec) && (
+                <span className="truncate text-[11px]" style={{ color: err ? "var(--ink)" : "var(--faint)" }}>
+                  {err ? err.text : "escape cancels, delete resets"}
+                </span>
+              )}
             </span>
             <span className="relative grid shrink-0 justify-items-end">
               <motion.span
@@ -1508,6 +1514,7 @@ function ShortcutsDemo() {
           </button>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -1571,7 +1578,6 @@ export function Features() {
             flip
             print={redFuji}
             crop={{ scale: 1.35, origin: "80% 35%" }}
-            zoom={1.35}
             credit={
               <>
                 <i>Fine Wind, Clear Morning</i>, Hokusai, c. 1831
@@ -1584,7 +1590,7 @@ export function Features() {
                 <Kbd>ctrl</Kbd> <Kbd>e</Kbd> unfolds them
               </>
             }
-            height={300}
+            height={340}
           >
             <BurstDemo />
           </Showcase>
@@ -1592,7 +1598,6 @@ export function Features() {
           <Showcase
             print={redFuji}
             crop={{ scale: 2.3, origin: "8% 8%" }}
-            zoom={1.25}
             credit={
               <>
                 <i>Fine Wind, Clear Morning</i>, Hokusai, c. 1831
@@ -1601,7 +1606,7 @@ export function Features() {
             title="Copy just the lines you need"
             body="Drag a box over an open screenshot to copy the lines inside it, or click one line to copy only that."
             hint="Drag across the booking"
-            height={260}
+            height={300}
           >
             <CopyDemo />
           </Showcase>
@@ -1649,7 +1654,6 @@ export function Features() {
           </Card>
           <Card
             wide
-            height={244}
             title="Every shortcut is yours"
             body="Pick a command and press the new keys. Escape cancels, Delete puts the default back, and keys already in use are refused."
           >
