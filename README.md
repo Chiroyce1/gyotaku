@@ -196,9 +196,11 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 ## Roadmap
 
 - [x] Move screenshots to the trash in bulk: search, mark the results, move them to the system trash, with undo
-- [ ] Simple installation on every supported OS: prebuilt releases and a one-command install, no Rust toolchain needed
+- [x] Simple installation on every supported OS: prebuilt releases and a one-command install, no Rust toolchain needed
+- [ ] Native installers: a Windows setup `.exe` (Start menu entry, uninstall from Apps and features) and a macOS `.dmg` with a signed, notarized app
+- [ ] Linux packages for every family, each a separate piece of the release pipeline: Flatpak on Flathub, the AUR, a Fedora COPR, an apt repository for Debian and Ubuntu, and openSUSE's OBS
 - [ ] A landing page with a demo, the measured numbers and the install commands
-- [ ] Windows support
+- [x] Windows support
 - [ ] macOS support
 - [ ] Optional classification of screenshots (one-time codes, receipts, chats) with Jev, to find and clear out the throwaway ones. Opt-in and off by default; only the recognized text is sent, never the image
 - [ ] Typo-tolerant search for OCR misreads: look-alike characters (`0` and `O`, `rn` and `m`, `l` and `1`) and words the OCR split apart (`ord er` for `order`). Exact matches always rank first, and near matches are labelled as such, with the text exactly as it was read, so an error code is never silently "corrected". Substring matching already works through the trigram index
@@ -208,6 +210,7 @@ gyotaku runs entirely on your machine. It has no telemetry, accounts or update c
 - [ ] Group bursts of near-identical screenshots
 - [ ] Search filters such as `app:`, `in:` and dates like `yesterday`
 - [ ] More scripts, starting with Devanagari, and vertical text
+- [ ] Handwriting: measure how well neat and messy handwritten notes read, and add an optional handwriting pass if it's worth it
 
 Suggestions are welcome as [feature requests](https://github.com/xevrion/gyotaku/issues/new?template=feature_request.yml).
 
