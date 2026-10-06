@@ -29,7 +29,7 @@ async function stars(): Promise<number> {
   }
 }
 
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 
 // Everything gyotaku ever does over the network. Kept honest with the
 // README's Privacy section.
@@ -100,7 +100,8 @@ export default async function Home() {
               src={greatWave}
               alt="The Great Wave off Kanagawa, a woodblock print by Hokusai"
               fill
-              priority
+              loading="eager"
+              fetchPriority="high"
               placeholder="blur"
               sizes="(min-width: 1152px) 1104px, 100vw"
               className="object-cover object-[30%_40%]"
@@ -153,6 +154,13 @@ export default async function Home() {
                 <span className="font-mono text-[12px] text-faint">all time</span>
               </figcaption>
               <table className="w-full font-mono text-[12px] sm:text-[13px]">
+                <thead className="sr-only">
+                  <tr>
+                    <th scope="col">When</th>
+                    <th scope="col">What</th>
+                    <th scope="col">How often</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {traffic.map((t, i) => (
                     <tr key={t.what} className={i ? "border-t border-line" : ""}>

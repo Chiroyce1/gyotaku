@@ -623,8 +623,15 @@ function FiltersDemo() {
                 <Shot shot={r.shot} hits={hits} sizes="120px" />
               </div>
               <span
-                className="truncate text-[11px] text-faint"
-                style={{ opacity: !searching || matches[i] ? 1 : 0.5, transition: `opacity 220ms ${EASE}` }}
+                // A caption that stepped back with its tile is out of the
+                // results, so screen readers skip it too.
+                aria-hidden={searching && !matches[i] ? true : undefined}
+                className="truncate text-[11px]"
+                // Steps back by color, not opacity, so it stays legible.
+                style={{
+                  color: !searching || matches[i] ? "var(--dim)" : "var(--faint)",
+                  transition: `color 220ms ${EASE}`,
+                }}
               >
                 {r.folder} · {r.age === 0 ? "today" : `${r.age}d`}
               </span>
@@ -1443,6 +1450,9 @@ function ShortcutsDemo() {
     // one right-aligned column, a hairline between rows.
     <div className="flex h-full flex-col justify-center px-3 py-3 @min-[22rem]:px-5">
       <p className="px-3 pb-2 text-[11px] font-medium tracking-wide text-faint">SHORTCUTS</p>
+      <span id="shortcut-how" className="sr-only">
+        Press Enter, then the new keys.
+      </span>
       <div className="grid grid-cols-1 gap-x-8 @min-[34rem]:grid-flow-col @min-[34rem]:grid-cols-2 @min-[34rem]:grid-rows-3">
       {COMMANDS.map((c, i) => {
         const rec = recording === i;
@@ -1466,7 +1476,9 @@ function ShortcutsDemo() {
               }
             }}
             onBlur={() => rec && stop()}
-            aria-label={`${c.name}: ${keys[i].join(" ")}. Press Enter, then the new keys.`}
+            // The name comes from what's on the button (command and keys);
+            // how to change it is said as a description.
+            aria-describedby="shortcut-how"
             className={`press relative h-14 shrink-0 items-center gap-3 rounded-[8px] px-3 text-left after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-line [&:nth-child(3n)]:after:hidden ${
               i >= 3 ? "hidden @min-[34rem]:flex" : "flex"
             }`}

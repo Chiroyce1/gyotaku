@@ -116,7 +116,8 @@ export default async function OsPage({ params }: Props) {
               src={greatWave}
               alt="The Great Wave off Kanagawa, a woodblock print by Hokusai"
               fill
-              priority
+              loading="eager"
+              fetchPriority="high"
               placeholder="blur"
               sizes="(min-width: 1152px) 1104px, 100vw"
               className="object-cover object-[30%_40%]"
