@@ -225,13 +225,19 @@ mod tests {
     use super::*;
 
     // A Tuesday afternoon in October, in UTC so the numbers are easy to check.
+    // TimeZone::UTC rather than "[UTC]", which needs a time zone database
+    // that minimal containers (CI's ubuntu:22.04) don't have.
     fn now() -> Zoned {
-        "2026-10-06T15:30:00[UTC]".parse().unwrap()
+        jiff::civil::date(2026, 10, 6)
+            .at(15, 30, 0, 0)
+            .to_zoned(TimeZone::UTC)
+            .unwrap()
     }
 
     fn at(date: &str) -> i64 {
-        format!("{date}T00:00:00[UTC]")
-            .parse::<Zoned>()
+        date.parse::<Date>()
+            .unwrap()
+            .to_zoned(TimeZone::UTC)
             .unwrap()
             .timestamp()
             .as_second()
