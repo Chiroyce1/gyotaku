@@ -176,7 +176,9 @@ jobs:
               sed -i -e "s/^pkgver=.*/pkgver=$version/" \
                 -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$sum')/" /home/builder/aur/PKGBUILD
               chown -R builder /home/builder/aur
-              su builder -c 'cd ~/aur && makepkg --noconfirm'
+              # The dependencies are installed by pacman -U below, which
+              # proves they resolve; the builder isn't allowed to.
+              su builder -c 'cd ~/aur && makepkg --noconfirm --nodeps'
               pacman -U --noconfirm /home/builder/aur/gyotaku-bin-*.pkg.tar.zst
               ;;
           esac
