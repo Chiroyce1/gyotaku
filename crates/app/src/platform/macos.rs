@@ -64,6 +64,10 @@ pub fn default_key(name: &str) -> Option<&'static str> {
     }
 }
 
+/// The platform modifier as hints spell it: the command mark, the way Mac
+/// apps show it. Rendered through the system font fallback.
+pub const MODIFIER_NAME: &str = "⌘";
+
 // Staying resident. macOS has unix sockets, and its TMPDIR is already one
 // per user; tagging the name with the uid keeps it that way if TMPDIR is
 // ever pointed somewhere shared.

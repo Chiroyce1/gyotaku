@@ -229,6 +229,8 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
 }
 
 /// `ctrl-shift-c` as `ctrl shift c`, the way every hint in the app reads.
+/// The platform modifier reads per OS: `super` on Linux, the command mark
+/// on macOS.
 pub fn pretty(key: &str) -> SharedString {
     if key.is_empty() {
         return "no key".into();
@@ -241,7 +243,7 @@ pub fn pretty(key: &str) -> SharedString {
     for (on, name) in [
         (m.control, "ctrl"),
         (m.alt, "alt"),
-        (m.platform, "super"),
+        (m.platform, crate::platform::MODIFIER_NAME),
         (m.shift, "shift"),
     ] {
         if on {
@@ -337,5 +339,9 @@ mod tests {
         assert_eq!(pretty("ctrl-shift-c"), "ctrl shift c");
         assert_eq!(pretty("ctrl-delete"), "ctrl del");
         assert_eq!(pretty("ctrl-,"), "ctrl ,");
+        assert_eq!(
+            pretty("cmd-c").to_string(),
+            format!("{} c", crate::platform::MODIFIER_NAME)
+        );
     }
 }

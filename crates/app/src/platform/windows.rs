@@ -242,6 +242,9 @@ pub fn default_key(_name: &str) -> Option<&'static str> {
     None
 }
 
+/// The platform modifier as hints spell it. Unchanged by this patch.
+pub const MODIFIER_NAME: &str = "super";
+
 // The clipboard. Windows keeps its own copy of whatever is put there, so it
 // outlives the window without any help.
 
