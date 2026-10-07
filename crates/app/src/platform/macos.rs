@@ -59,6 +59,7 @@ pub fn default_key(name: &str) -> Option<&'static str> {
         "undo" => Some("cmd-z"),
         "settings" => Some("cmd-,"),
         "quit" => Some("cmd-q"),
+        "add_folder" => Some("cmd-o"),
         _ => None,
     }
 }

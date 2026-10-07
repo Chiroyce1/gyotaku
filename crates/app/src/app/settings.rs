@@ -857,7 +857,15 @@ impl Gyotaku {
                             .text_color(theme.muted)
                             .child("add a folder\u{2026}"),
                     )
-                    .child(on_row_hover(ix, selected, hint("ctrl o", "add", theme)))
+                    .child(on_row_hover(
+                        ix,
+                        selected,
+                        hint(
+                            keys::pretty(keys::fixed("add_folder", "ctrl-o")),
+                            "add",
+                            theme,
+                        ),
+                    ))
                     .into_any_element(),
                 Row::Theme => {
                     list.push(section("look"));
@@ -1233,7 +1241,11 @@ impl Gyotaku {
                                 .text_color(theme.muted)
                                 .child("add another folder\u{2026}"),
                         )
-                        .child(hint("ctrl o", "add", theme))
+                        .child(hint(
+                            keys::pretty(keys::fixed("add_folder", "ctrl-o")),
+                            "add",
+                            theme,
+                        ))
                         .into_any_element(),
                 );
                 (
@@ -1275,7 +1287,7 @@ impl Gyotaku {
                 .child(div().w(px(12.)))
                 .child(button(
                     "onboarding-add",
-                    "ctrl o",
+                    keys::pretty(keys::fixed("add_folder", "ctrl-o")),
                     "add a folder",
                     theme,
                     cx.listener(|this, _: &ClickEvent, window, cx| this.add_folders(window, cx)),

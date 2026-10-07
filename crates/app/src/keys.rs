@@ -89,6 +89,12 @@ pub fn default(s: &Shortcut) -> &str {
     crate::platform::default_key(s.name).unwrap_or(s.default)
 }
 
+/// Default for fixed keys outside the rebindable table (panel keys): the
+/// platform override when it has one, otherwise the given fallback.
+pub fn fixed(name: &str, fallback: &'static str) -> &'static str {
+    crate::platform::default_key(name).unwrap_or(fallback)
+}
+
 /// Shown in settings next to the ones that can be changed.
 pub const FIXED: [(&str, &str); 6] = [
     ("esc", "back"),
@@ -196,7 +202,7 @@ pub fn bind_all(cx: &mut App, overrides: &BTreeMap<String, String>) {
         KeyBinding::new("space", Toggle, Some("Panel")),
         KeyBinding::new("delete", Remove, Some("Panel")),
         KeyBinding::new("backspace", Remove, Some("Panel")),
-        KeyBinding::new("ctrl-o", AddFolder, Some("Panel")),
+        KeyBinding::new(fixed("add_folder", "ctrl-o"), AddFolder, Some("Panel")),
         KeyBinding::new("backspace", Backspace, Some("TextInput")),
         KeyBinding::new("ctrl-backspace", DeleteWord, Some("TextInput")),
         KeyBinding::new("delete", Delete, Some("TextInput")),
@@ -318,6 +324,7 @@ mod tests {
             assert!(usable(s.default).is_ok(), "{}", s.default);
             assert!(usable(default(s)).is_ok(), "{}", default(s));
         }
+        assert!(usable(fixed("add_folder", "ctrl-o")).is_ok());
         let none = BTreeMap::new();
         let keys = resolve(&none);
         for (i, s) in SHORTCUTS.iter().enumerate() {
