@@ -324,7 +324,10 @@ mod tests {
     fn defaults_are_all_usable_and_distinct() {
         for s in &SHORTCUTS {
             assert!(usable(s.default).is_ok(), "{}", s.default);
-            assert!(usable(default(s)).is_ok(), "{}", default(s));
+            // An empty default leaves the shortcut unbound (quit on macOS,
+            // where quitting stays in the menu bar so the summon key lives).
+            let d = default(s);
+            assert!(d.is_empty() || usable(d).is_ok(), "{d}");
         }
         assert!(usable(fixed("add_folder", "ctrl-o")).is_ok());
         let none = BTreeMap::new();

@@ -58,7 +58,11 @@ pub fn default_key(name: &str) -> Option<&'static str> {
         "trash" => Some("cmd-delete"),
         "undo" => Some("cmd-z"),
         "settings" => Some("cmd-,"),
-        "quit" => Some("cmd-q"),
+        // No key: cmd-q and cmd-w already put the window away through
+        // hide_keys, and Quit in the window context would win and exit the
+        // app, killing the summon key until relaunch. Quitting on macOS
+        // stays in the menu bar icon's menu.
+        "quit" => Some(""),
         "add_folder" => Some("cmd-o"),
         _ => None,
     }
