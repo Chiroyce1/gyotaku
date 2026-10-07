@@ -1,5 +1,5 @@
 //! Onboarding (the first time, when there's no config yet) and settings
-//! (ctrl comma, any time after). Both are lists of rows you move through with
+//! (the settings shortcut, any time after). Both are lists of rows you move through with
 //! the arrows, or click. Hovering only tints a row: the highlight that keys
 //! act on moves with the keys and with clicks, never with a resting mouse,
 //! so enter does what the screen says rather than whatever the pointer is
@@ -459,7 +459,7 @@ impl Gyotaku {
             );
         }
         let shortcut = &SHORTCUTS[i];
-        if key == shortcut.default {
+        if key == keys::default(shortcut) {
             config.keys.remove(shortcut.name);
         } else {
             config.keys.insert(shortcut.name.into(), key.clone());
@@ -476,11 +476,11 @@ impl Gyotaku {
         let mut config = self.current_config();
         let shortcut = &SHORTCUTS[i];
         // The default may have been given to another shortcut since.
-        if let Some(j) = keys::taken_by(shortcut.default, i, &config.keys) {
+        if let Some(j) = keys::taken_by(keys::default(shortcut), i, &config.keys) {
             return self.flash(
                 format!(
                     "{} is {} now, change that one first",
-                    keys::pretty(shortcut.default),
+                    keys::pretty(keys::default(shortcut)),
                     SHORTCUTS[j].label
                 ),
                 cx,
@@ -495,7 +495,7 @@ impl Gyotaku {
             format!(
                 "{} is back to {}",
                 shortcut.label,
-                keys::pretty(shortcut.default)
+                keys::pretty(keys::default(shortcut))
             ),
             cx,
         );
@@ -988,7 +988,7 @@ impl Gyotaku {
                     }
                     let shortcut = &SHORTCUTS[k];
                     let bound = keys::current(k, &config.keys);
-                    let changed = bound != shortcut.default;
+                    let changed = bound != keys::default(shortcut);
                     let listening = recording == Some(k);
                     let reset = changed.then(|| {
                         button(
@@ -1033,7 +1033,7 @@ impl Gyotaku {
                             |d| {
                                 d.child(div().text_xs().text_color(theme.muted).child(format!(
                                     "changed from {}",
-                                    keys::pretty(shortcut.default)
+                                    keys::pretty(keys::default(shortcut))
                                 )))
                             },
                         ))

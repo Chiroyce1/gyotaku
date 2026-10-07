@@ -237,6 +237,11 @@ pub fn hide_keys() -> &'static [&'static str] {
     &[]
 }
 
+/// No override: the shared `ctrl` defaults in `keys.rs` stand.
+pub fn default_key(_name: &str) -> Option<&'static str> {
+    None
+}
+
 // The clipboard. Windows keeps its own copy of whatever is put there, so it
 // outlives the window without any help.
 

@@ -81,6 +81,14 @@ pub const SHORTCUTS: [Shortcut; 10] = [
     },
 ];
 
+/// The default key for a shortcut on this system: the platform override
+/// when it has one (macOS today), the shared table above everywhere else.
+/// Overrides in config.toml are compared against this, so reset, clash
+/// checks and "changed from" agree with what a fresh install binds.
+pub fn default(s: &Shortcut) -> &str {
+    crate::platform::default_key(s.name).unwrap_or(s.default)
+}
+
 /// Shown in settings next to the ones that can be changed.
 pub const FIXED: [(&str, &str); 6] = [
     ("esc", "back"),
@@ -119,14 +127,14 @@ fn resolve(overrides: &BTreeMap<String, String>) -> Vec<String> {
     let mut taken: Vec<String> = SHORTCUTS
         .iter()
         .filter(|s| changed(s).is_none())
-        .map(|s| s.default.to_string())
+        .map(|s| default(s).to_string())
         .collect();
     SHORTCUTS
         .iter()
         .map(|s| match changed(s) {
-            None => s.default.to_string(),
+            None => default(s).to_string(),
             Some(key) => {
-                let key = [key, s.default.to_string()]
+                let key = [key, default(s).to_string()]
                     .into_iter()
                     .find(|k| !taken.contains(k))
                     .unwrap_or_default();
@@ -266,27 +274,32 @@ mod tests {
     #[test]
     fn overrides_apply_and_bad_ones_fall_back() {
         let ix = |name| SHORTCUTS.iter().position(|s| s.name == name).unwrap();
+        let trash_default = default(&SHORTCUTS[ix("trash")]).to_string();
+        let copy_default = default(&SHORTCUTS[ix("copy_text")]).to_string();
+        let open_default = default(&SHORTCUTS[ix("open")]).to_string();
         let mut o = BTreeMap::new();
         o.insert("trash".to_string(), "ctrl-k".to_string());
         assert_eq!(current(ix("trash"), &o), "ctrl-k");
         o.insert("trash".to_string(), "x".to_string());
-        assert_eq!(current(ix("trash"), &o), "ctrl-delete");
+        assert_eq!(current(ix("trash"), &o), trash_default);
         // A clash with an earlier shortcut keeps the default instead.
-        o.insert("trash".to_string(), "ctrl-c".to_string());
-        assert_eq!(current(ix("trash"), &o), "ctrl-delete");
-        assert_eq!(taken_by("ctrl-o", ix("trash"), &o), Some(ix("open")));
+        o.insert("trash".to_string(), copy_default);
+        assert_eq!(current(ix("trash"), &o), trash_default);
+        assert_eq!(taken_by(&open_default, ix("trash"), &o), Some(ix("open")));
         assert_eq!(taken_by("ctrl-k", ix("trash"), &o), None);
     }
 
     #[test]
     fn no_key_is_ever_bound_twice() {
         let ix = |name| SHORTCUTS.iter().position(|s| s.name == name).unwrap();
+        let trash_default = default(&SHORTCUTS[ix("trash")]).to_string();
+        let copy_default = default(&SHORTCUTS[ix("copy_text")]).to_string();
         // copy text took trash's default while trash was on ctrl k; then the
         // trash override was deleted by hand.
         let mut o = BTreeMap::new();
-        o.insert("copy_text".to_string(), "ctrl-delete".to_string());
-        assert_eq!(current(ix("trash"), &o), "ctrl-delete");
-        assert_eq!(current(ix("copy_text"), &o), "ctrl-c");
+        o.insert("copy_text".to_string(), trash_default.clone());
+        assert_eq!(current(ix("trash"), &o), trash_default);
+        assert_eq!(current(ix("copy_text"), &o), copy_default);
         // Two changed shortcuts after the same key: the first keeps it.
         o.insert("trash".to_string(), "ctrl-k".to_string());
         o.insert("undo".to_string(), "ctrl-k".to_string());
@@ -303,11 +316,12 @@ mod tests {
     fn defaults_are_all_usable_and_distinct() {
         for s in &SHORTCUTS {
             assert!(usable(s.default).is_ok(), "{}", s.default);
+            assert!(usable(default(s)).is_ok(), "{}", default(s));
         }
         let none = BTreeMap::new();
         let keys = resolve(&none);
         for (i, s) in SHORTCUTS.iter().enumerate() {
-            assert_eq!(keys[i], s.default);
+            assert_eq!(keys[i], default(s));
         }
     }
 
