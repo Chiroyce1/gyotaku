@@ -488,6 +488,9 @@ impl Gyotaku {
             return self.flash(why, cx);
         }
         if recording_summon {
+            if let Err(why) = keys::usable_summon(&key) {
+                return self.flash(why, cx);
+            }
             if let Err(why) = crate::rebind_summon(&key, cx) {
                 return self.flash(why, cx);
             }

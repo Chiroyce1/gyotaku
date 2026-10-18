@@ -104,6 +104,7 @@ pub fn summon_default() -> &'static str {
 /// platform default.
 pub fn summon_key(keys: &std::collections::BTreeMap<String, String>) -> &str {
     keys.get("summon")
+        .filter(|k| usable_summon(k).is_ok())
         .map(String::as_str)
         .unwrap_or(crate::platform::SUMMON_DEFAULT)
 }
@@ -177,6 +178,21 @@ pub fn usable(key: &str) -> Result<(), &'static str> {
     }
     if TEXT_EDITING.contains(&key) {
         return Err("the search field uses that one for editing");
+    }
+    Ok(())
+}
+
+/// Refuses system-wide shortcuts (copy, paste, cut, undo, select all, save, quit)
+/// so the global hotkey doesn't steal them from other programs.
+pub fn usable_summon(key: &str) -> Result<(), &'static str> {
+    usable(key)?;
+    let Ok(k) = Keystroke::parse(key) else {
+        return Err("that key can't be used");
+    };
+    let m = k.modifiers;
+    let only_primary = (m.control || m.platform) && !m.alt && !m.shift;
+    if only_primary && matches!(k.key.as_str(), "a" | "c" | "q" | "s" | "v" | "x" | "z") {
+        return Err("other programs need that one for basic shortcuts");
     }
     Ok(())
 }
@@ -367,5 +383,22 @@ mod tests {
             pretty("cmd-c").to_string(),
             format!("{} c", crate::platform::MODIFIER_NAME)
         );
+    }
+
+    #[test]
+    fn summon_refuses_basic_system_shortcuts() {
+        for key in [
+            "ctrl-c", "cmd-c", "ctrl-v", "cmd-v", "ctrl-x", "cmd-x", "ctrl-z", "cmd-z", "ctrl-a",
+            "cmd-a", "ctrl-s", "cmd-s", "ctrl-q", "cmd-q",
+        ] {
+            assert!(usable_summon(key).is_err(), "{key} should be refused");
+        }
+        assert!(usable_summon("alt-shift-s").is_ok());
+        assert!(usable_summon("cmd-shift-c").is_ok());
+        assert!(usable_summon("ctrl-shift-x").is_ok());
+
+        let mut bad = BTreeMap::new();
+        bad.insert("summon".to_string(), "cmd-c".to_string());
+        assert_eq!(summon_key(&bad), summon_default());
     }
 }
