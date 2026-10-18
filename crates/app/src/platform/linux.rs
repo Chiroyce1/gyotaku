@@ -128,7 +128,9 @@ pub fn take_focus(_: &mut Window) {}
 
 /// Nothing to register: the desktop's own shortcut runs `gyotaku-app`, and
 /// that knocks on the running copy.
-pub fn register_summon(_: UnboundedSender<()>, _: &BTreeMap<String, String>, _: &mut App) {}
+pub fn register_summon(_: UnboundedSender<()>, _: &str, _: &mut App) -> Result<(), &'static str> {
+    Ok(())
+}
 
 /// The desktop owns the summon key, so it can't be changed here.
 pub fn summon_rebindable() -> bool {

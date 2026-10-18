@@ -488,6 +488,9 @@ impl Gyotaku {
             return self.flash(why, cx);
         }
         if recording_summon {
+            if let Err(why) = crate::rebind_summon(&key, cx) {
+                return self.flash(why, cx);
+            }
             let mut config = s.config.clone();
             if key == keys::summon_default() {
                 config.keys.remove("summon");
@@ -495,8 +498,6 @@ impl Gyotaku {
                 config.keys.insert("summon".into(), key.clone());
             }
             self.save(config, cx);
-            // Re-register the OS hotkey with the new key.
-            crate::rebind_summon(&self.current_config(), cx);
             self.stop_recording(cx);
             self.flash(format!("summon is {} now", keys::pretty(&key)), cx);
             return;
@@ -554,15 +555,16 @@ impl Gyotaku {
 
     fn reset_summon(&mut self, cx: &mut Context<Self>) {
         let mut config = self.current_config();
-        if config.keys.remove("summon").is_none() {
+        if !config.keys.contains_key("summon") {
             return;
         }
+        let default = keys::summon_default();
+        if let Err(why) = crate::rebind_summon(default, cx) {
+            return self.flash(why, cx);
+        }
+        config.keys.remove("summon");
         self.save(config, cx);
-        crate::rebind_summon(&self.current_config(), cx);
-        self.flash(
-            format!("summon is back to {}", keys::pretty(keys::summon_default())),
-            cx,
-        );
+        self.flash(format!("summon is back to {}", keys::pretty(default)), cx);
     }
 
     fn current_config(&self) -> Config {

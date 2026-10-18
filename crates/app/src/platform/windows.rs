@@ -312,16 +312,19 @@ impl Global for Summon {}
 /// resident process registers the key itself, and each press sends the same
 /// knock a second launch would. If another program holds the key, opening
 /// gyotaku from the Start menu still works.
-pub fn register_summon(knocks: UnboundedSender<()>, keys: &BTreeMap<String, String>, cx: &mut App) {
-    let key = keys.get("summon").map_or(SUMMON_DEFAULT, String::as_str);
+pub fn register_summon(
+    knocks: UnboundedSender<()>,
+    key: &str,
+    cx: &mut App,
+) -> Result<(), &'static str> {
     let Ok(hotkey) = key.replace('-', "+").parse::<HotKey>() else {
         log::warn!("couldn't parse {key}");
-        return;
+        return Err("that key can't be used");
     };
     if !cx.has_global::<Summon>() {
         let Ok(manager) = GlobalHotKeyManager::new() else {
             log::warn!("couldn't create hotkey manager");
-            return;
+            return Err("couldn't create hotkey manager");
         };
         GlobalHotKeyEvent::set_event_handler(Some(move |e: GlobalHotKeyEvent| {
             if e.state == HotKeyState::Pressed {
@@ -334,14 +337,18 @@ pub fn register_summon(knocks: UnboundedSender<()>, keys: &BTreeMap<String, Stri
         });
     }
     let summon = cx.global_mut::<Summon>();
-    if let Some(old) = summon.hotkey.take() {
-        let _ = summon.manager.unregister(old);
+    if summon.hotkey == Some(hotkey) {
+        return Ok(());
     }
     if let Err(e) = summon.manager.register(hotkey) {
         log::warn!("couldn't register {key}: {e}");
-    } else {
-        summon.hotkey = Some(hotkey);
+        return Err("already in use by another program");
     }
+    if let Some(old) = summon.hotkey.take() {
+        let _ = summon.manager.unregister(old);
+    }
+    summon.hotkey = Some(hotkey);
+    Ok(())
 }
 
 /// Updates the shortcut shown next to "Open gyotaku" in the notification area.

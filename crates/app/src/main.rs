@@ -112,7 +112,8 @@ fn main() -> Result<()> {
         let Some(listener) = listener else { return };
         let (knocks, mut knocked) = futures::channel::mpsc::unbounded();
         let (shows, mut shown) = futures::channel::mpsc::unbounded();
-        platform::register_summon(knocks.clone(), &config.keys, cx);
+        let summon_key = crate::keys::summon_key(&config.keys);
+        let _ = platform::register_summon(knocks.clone(), summon_key, cx);
         cx.set_global(Knocks(knocks.clone()));
         std::thread::spawn(move || {
             for stream in listener.incoming() {
@@ -166,14 +167,15 @@ struct Knocks(futures::channel::mpsc::UnboundedSender<()>);
 
 impl Global for Knocks {}
 
-/// Re-registers the summon hotkey with the key now in `config.keys`. Does
-/// nothing on Linux, where the desktop owns the binding.
-pub(crate) fn rebind_summon(config: &gyotaku_core::Config, cx: &mut App) {
+/// Re-registers the summon hotkey with `key`. Does nothing on Linux, where
+/// the desktop owns the binding.
+pub(crate) fn rebind_summon(key: &str, cx: &mut App) -> Result<(), String> {
     if let Some(knocks) = cx.try_global::<Knocks>().map(|k| k.0.clone()) {
-        platform::register_summon(knocks, &config.keys, cx);
+        platform::register_summon(knocks, key, cx)
+            .map_err(|why| format!("{} is {why}", crate::keys::pretty(key)))?;
     }
-    let summon_key = crate::keys::summon_key(&config.keys);
-    platform::update_summon(summon_key, cx);
+    platform::update_summon(key, cx);
+    Ok(())
 }
 
 /// Opens the search window, or closes it if it's already up, so one key
